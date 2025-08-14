@@ -397,44 +397,375 @@ void test_da_thread_safety_basic(void) {
     TEST_ASSERT_NULL(arr);
 }
 
+/* Builder Tests */
+void test_da_builder_create_basic(void) {
+    da_builder builder = da_builder_create(sizeof(int));
+
+    TEST_ASSERT_NOT_NULL(builder);
+    TEST_ASSERT_EQUAL_INT(0, da_builder_length(builder));
+    TEST_ASSERT_EQUAL_INT(0, da_builder_capacity(builder));
+
+    da_builder_destroy(&builder);
+    TEST_ASSERT_NULL(builder);
+}
+
+void test_da_builder_create_typed_macro(void) {
+    da_builder builder = DA_BUILDER_CREATE(int);
+
+    TEST_ASSERT_NOT_NULL(builder);
+    TEST_ASSERT_EQUAL_INT(0, DA_BUILDER_LEN(builder));
+    TEST_ASSERT_EQUAL_INT(0, DA_BUILDER_CAP(builder));
+
+    da_builder_destroy(&builder);
+}
+
+void test_da_builder_append_basic(void) {
+    da_builder builder = DA_BUILDER_CREATE(int);
+
+    int val1 = 42;
+    int val2 = 99;
+
+    da_builder_append(builder, &val1);
+    TEST_ASSERT_EQUAL_INT(1, DA_BUILDER_LEN(builder));
+    TEST_ASSERT_TRUE(DA_BUILDER_CAP(builder) >= 1);
+
+    da_builder_append(builder, &val2);
+    TEST_ASSERT_EQUAL_INT(2, DA_BUILDER_LEN(builder));
+    TEST_ASSERT_TRUE(DA_BUILDER_CAP(builder) >= 2);
+
+    da_builder_destroy(&builder);
+}
+
+void test_da_builder_append_typed_macro(void) {
+    da_builder builder = DA_BUILDER_CREATE(int);
+
+#if DA_HAS_TYPEOF
+    DA_BUILDER_APPEND(builder, 42);
+    DA_BUILDER_APPEND(builder, 99);
+#else
+    DA_BUILDER_APPEND(builder, 42, int);
+    DA_BUILDER_APPEND(builder, 99, int);
+#endif
+
+    TEST_ASSERT_EQUAL_INT(2, DA_BUILDER_LEN(builder));
+
+    TEST_ASSERT_EQUAL_INT(42, DA_BUILDER_AT(builder, 0, int));
+    TEST_ASSERT_EQUAL_INT(99, DA_BUILDER_AT(builder, 1, int));
+
+    da_builder_destroy(&builder);
+}
+
+void test_da_builder_growth_doubling(void) {
+    da_builder builder = DA_BUILDER_CREATE(int);
+
+    // Builder should always use doubling strategy
+    int previous_capacity = 0;
+
+    for (int i = 0; i < 20; i++) {
+#if DA_HAS_TYPEOF
+        DA_BUILDER_APPEND(builder, i);
+#else
+        DA_BUILDER_APPEND(builder, i, int);
+#endif
+
+        int current_capacity = DA_BUILDER_CAP(builder);
+
+        // Check doubling behavior (capacity should be power of 2)
+        if (current_capacity > previous_capacity) {
+            if (previous_capacity > 0) {
+                TEST_ASSERT_EQUAL_INT(previous_capacity * 2, current_capacity);
+            }
+            previous_capacity = current_capacity;
+        }
+    }
+
+    da_builder_destroy(&builder);
+}
+
+void test_da_builder_access_operations(void) {
+    da_builder builder = DA_BUILDER_CREATE(int);
+
+    // Append some values
+    for (int i = 0; i < 5; i++) {
+#if DA_HAS_TYPEOF
+        DA_BUILDER_APPEND(builder, i * 10);
+#else
+        DA_BUILDER_APPEND(builder, i * 10, int);
+#endif
+    }
+
+    // Test get
+    for (int i = 0; i < 5; i++) {
+        int* ptr = (int*)da_builder_get(builder, i);
+        TEST_ASSERT_EQUAL_INT(i * 10, *ptr);
+    }
+
+    // Test set
+    int new_val = 999;
+    da_builder_set(builder, 2, &new_val);
+    TEST_ASSERT_EQUAL_INT(999, DA_BUILDER_AT(builder, 2, int));
+
+    da_builder_destroy(&builder);
+}
+
+void test_da_builder_clear(void) {
+    da_builder builder = DA_BUILDER_CREATE(int);
+
+    // Add some elements
+    for (int i = 0; i < 10; i++) {
+#if DA_HAS_TYPEOF
+        DA_BUILDER_APPEND(builder, i);
+#else
+        DA_BUILDER_APPEND(builder, i, int);
+#endif
+    }
+
+    TEST_ASSERT_EQUAL_INT(10, DA_BUILDER_LEN(builder));
+    int capacity_before = DA_BUILDER_CAP(builder);
+
+    DA_BUILDER_CLEAR(builder);
+
+    TEST_ASSERT_EQUAL_INT(0, DA_BUILDER_LEN(builder));
+    TEST_ASSERT_EQUAL_INT(capacity_before, DA_BUILDER_CAP(builder));  // Capacity unchanged
+
+    da_builder_destroy(&builder);
+}
+
+void test_da_builder_to_array_basic(void) {
+    da_builder builder = DA_BUILDER_CREATE(int);
+
+    // Build up some data
+    for (int i = 0; i < 10; i++) {
+#if DA_HAS_TYPEOF
+        DA_BUILDER_APPEND(builder, i * 2);
+#else
+        DA_BUILDER_APPEND(builder, i * 2, int);
+#endif
+    }
+
+    int builder_length = DA_BUILDER_LEN(builder);
+    int builder_capacity = DA_BUILDER_CAP(builder);
+
+    // Convert to array
+    da_array arr = da_builder_to_array(&builder);
+    TEST_ASSERT_NULL(builder);  // Builder should be consumed
+
+    // Check array properties
+    TEST_ASSERT_NOT_NULL(arr);
+    TEST_ASSERT_EQUAL_INT(builder_length, DA_LEN(arr));
+    TEST_ASSERT_EQUAL_INT(builder_length, DA_CAP(arr));  // Exact capacity!
+    TEST_ASSERT_EQUAL_INT(1, DA_ATOMIC_LOAD(&arr->ref_count));
+
+    // Check that capacity was shrunk to exact size
+    TEST_ASSERT_TRUE(DA_CAP(arr) <= builder_capacity);
+
+    // Verify data integrity
+    for (int i = 0; i < 10; i++) {
+        TEST_ASSERT_EQUAL_INT(i * 2, DA_AT(arr, i, int));
+    }
+
+    da_release(&arr);
+}
+
+void test_da_builder_to_array_empty(void) {
+    da_builder builder = DA_BUILDER_CREATE(int);
+
+    // Don't add any elements
+    TEST_ASSERT_EQUAL_INT(0, DA_BUILDER_LEN(builder));
+
+    da_array arr = da_builder_to_array(&builder);
+    TEST_ASSERT_NULL(builder);
+
+    TEST_ASSERT_NOT_NULL(arr);
+    TEST_ASSERT_EQUAL_INT(0, DA_LEN(arr));
+    TEST_ASSERT_EQUAL_INT(0, DA_CAP(arr));
+    TEST_ASSERT_EQUAL_INT(1, DA_ATOMIC_LOAD(&arr->ref_count));
+
+    da_release(&arr);
+}
+
+void test_da_builder_to_array_exact_sizing(void) {
+    da_builder builder = DA_BUILDER_CREATE(int);
+
+    // Add elements to trigger multiple capacity doublings
+    for (int i = 0; i < 100; i++) {
+#if DA_HAS_TYPEOF
+        DA_BUILDER_APPEND(builder, i);
+#else
+        DA_BUILDER_APPEND(builder, i, int);
+#endif
+    }
+
+    int builder_capacity = DA_BUILDER_CAP(builder);
+    TEST_ASSERT_TRUE(builder_capacity > 100);  // Should have excess capacity
+
+    da_array arr = da_builder_to_array(&builder);
+
+    // Array should have exact capacity = length = 100
+    TEST_ASSERT_EQUAL_INT(100, DA_LEN(arr));
+    TEST_ASSERT_EQUAL_INT(100, DA_CAP(arr));  // No wasted memory!
+
+    da_release(&arr);
+}
+
+void test_da_builder_integration_with_arrays(void) {
+    // Test that arrays created from builders work normally
+    da_builder builder = DA_BUILDER_CREATE(int);
+
+    for (int i = 0; i < 5; i++) {
+#if DA_HAS_TYPEOF
+        DA_BUILDER_APPEND(builder, i * 10);
+#else
+        DA_BUILDER_APPEND(builder, i * 10, int);
+#endif
+    }
+
+    da_array arr = da_builder_to_array(&builder);
+
+    // Test reference counting
+    da_array arr2 = da_retain(arr);
+    TEST_ASSERT_EQUAL_INT(2, DA_ATOMIC_LOAD(&arr->ref_count));
+
+    // Test array operations
+#if DA_HAS_TYPEOF
+    DA_PUSH(arr, 999);
+#else
+    DA_PUSH(arr, 999, int);
+#endif
+
+    TEST_ASSERT_EQUAL_INT(6, DA_LEN(arr));
+    TEST_ASSERT_EQUAL_INT(999, DA_AT(arr, 5, int));
+
+    // Test that shared reference sees the change
+    TEST_ASSERT_EQUAL_INT(6, DA_LEN(arr2));
+    TEST_ASSERT_EQUAL_INT(999, DA_AT(arr2, 5, int));
+
+    da_release(&arr);
+    da_release(&arr2);
+}
+
+void test_da_builder_different_types(void) {
+    // Test builder with different data types
+    da_builder float_builder = DA_BUILDER_CREATE(float);
+    da_builder char_builder = DA_BUILDER_CREATE(char);
+
+    float f_vals[] = {3.14f, 2.71f, 1.41f};
+    char c_vals[] = {'A', 'B', 'C'};
+
+    for (int i = 0; i < 3; i++) {
+        da_builder_append(float_builder, &f_vals[i]);
+        da_builder_append(char_builder, &c_vals[i]);
+    }
+
+    da_array float_arr = da_builder_to_array(&float_builder);
+    da_array char_arr = da_builder_to_array(&char_builder);
+
+    // Verify data
+    for (int i = 0; i < 3; i++) {
+        float* f_ptr = (float*)da_get(float_arr, i);
+        char* c_ptr = (char*)da_get(char_arr, i);
+
+        TEST_ASSERT_FLOAT_WITHIN(0.01f, f_vals[i], *f_ptr);
+        TEST_ASSERT_EQUAL_INT(c_vals[i], *c_ptr);
+    }
+
+    da_release(&float_arr);
+    da_release(&char_arr);
+}
+
+void test_da_builder_stress_test(void) {
+    da_builder builder = DA_BUILDER_CREATE(int);
+
+    // Add many elements to stress test growth
+    const int num_elements = 1000;
+    for (int i = 0; i < num_elements; i++) {
+#if DA_HAS_TYPEOF
+        DA_BUILDER_APPEND(builder, i);
+#else
+        DA_BUILDER_APPEND(builder, i, int);
+#endif
+    }
+
+    TEST_ASSERT_EQUAL_INT(num_elements, DA_BUILDER_LEN(builder));
+
+    // Verify all data
+    for (int i = 0; i < num_elements; i++) {
+        TEST_ASSERT_EQUAL_INT(i, DA_BUILDER_AT(builder, i, int));
+    }
+
+    // Convert to array and verify exact sizing
+    da_array arr = da_builder_to_array(&builder);
+
+    TEST_ASSERT_EQUAL_INT(num_elements, DA_LEN(arr));
+    TEST_ASSERT_EQUAL_INT(num_elements, DA_CAP(arr));  // Exact capacity
+
+    // Verify data integrity after conversion
+    for (int i = 0; i < num_elements; i++) {
+        TEST_ASSERT_EQUAL_INT(i, DA_AT(arr, i, int));
+    }
+
+    da_release(&arr);
+}
+
 int main(void) {
     UNITY_BEGIN();
 
-    // Creation and basic properties
+    // Array creation and basic properties
     RUN_TEST(test_da_create_basic);
     RUN_TEST(test_da_create_zero_capacity);
     RUN_TEST(test_da_create_typed_macro);
 
-    // Reference counting
+    // Array reference counting
     RUN_TEST(test_da_reference_counting);
     RUN_TEST(test_da_multiple_retains);
 
-    // Push and growth
+    // Array push and growth
     RUN_TEST(test_da_push_basic);
     RUN_TEST(test_da_push_with_growth);
     RUN_TEST(test_da_push_from_zero_capacity);
 
-    // Access
+    // Array access
     RUN_TEST(test_da_get_and_set);
     RUN_TEST(test_da_data_access);
 
-    // Pop
+    // Array pop
     RUN_TEST(test_da_pop_basic);
     RUN_TEST(test_da_pop_ignore_output);
 
-    // Clear and resize
+    // Array clear and resize
     RUN_TEST(test_da_clear);
     RUN_TEST(test_da_reserve);
     RUN_TEST(test_da_resize_grow);
     RUN_TEST(test_da_resize_shrink);
 
-    // Macros
+    // Array macros
     RUN_TEST(test_da_typed_macros);
 
-    // Stress tests
+    // Array stress tests
     RUN_TEST(test_da_many_operations);
     RUN_TEST(test_da_different_types);
     RUN_TEST(test_da_thread_safety_basic);
+
+    // Builder creation and basic operations
+    RUN_TEST(test_da_builder_create_basic);
+    RUN_TEST(test_da_builder_create_typed_macro);
+    RUN_TEST(test_da_builder_append_basic);
+    RUN_TEST(test_da_builder_append_typed_macro);
+
+    // Builder growth and access
+    RUN_TEST(test_da_builder_growth_doubling);
+    RUN_TEST(test_da_builder_access_operations);
+    RUN_TEST(test_da_builder_clear);
+
+    // Builder to array conversion
+    RUN_TEST(test_da_builder_to_array_basic);
+    RUN_TEST(test_da_builder_to_array_empty);
+    RUN_TEST(test_da_builder_to_array_exact_sizing);
+
+    // Builder integration and stress tests
+    RUN_TEST(test_da_builder_integration_with_arrays);
+    RUN_TEST(test_da_builder_different_types);
+    RUN_TEST(test_da_builder_stress_test);
 
     return UNITY_END();
 }

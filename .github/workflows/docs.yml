@@ -1,16 +1,40 @@
 name: Generate Docs
-on: [push]
+on:
+  push:
+    branches: [ main ]  # or master
+  pull_request:
+    branches: [ main ]
+
+# Add this permissions block
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 jobs:
   docs:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4  # Updated version
+
       - name: Install Doxygen
-        run: sudo apt-get install doxygen
+        run: sudo apt-get update && sudo apt-get install doxygen
+
       - name: Generate docs
         run: doxygen
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v3
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v2
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./docs
+          path: './docs'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v2

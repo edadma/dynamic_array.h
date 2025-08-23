@@ -1098,6 +1098,182 @@ void test_da_builder_stress_test(void) {
     da_release(&arr);
 }
 
+void test_da_builder_reserve_basic(void) {
+    da_builder builder = da_builder_create(sizeof(int));
+    
+    // Initially should have 0 capacity
+    TEST_ASSERT_EQUAL_INT(0, da_builder_capacity(builder));
+    
+    // Reserve capacity for 100 elements
+    da_builder_reserve(builder, 100);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(100, da_builder_capacity(builder));
+    TEST_ASSERT_EQUAL_INT(0, da_builder_length(builder));
+    
+    // Add elements - should not trigger reallocations
+    for (int i = 0; i < 50; i++) {
+        da_builder_append(builder, &i);
+    }
+    
+    TEST_ASSERT_EQUAL_INT(50, da_builder_length(builder));
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(100, da_builder_capacity(builder));
+    
+    // Verify no reallocation occurred by checking capacity hasn't grown
+    int capacity_after_50 = da_builder_capacity(builder);
+    
+    for (int i = 50; i < 100; i++) {
+        da_builder_append(builder, &i);
+    }
+    
+    TEST_ASSERT_EQUAL_INT(100, da_builder_length(builder));
+    TEST_ASSERT_EQUAL_INT(capacity_after_50, da_builder_capacity(builder));
+    
+    da_builder_destroy(&builder);
+}
+
+void test_da_builder_reserve_no_shrink(void) {
+    da_builder builder = da_builder_create(sizeof(int));
+    
+    // Reserve large capacity
+    da_builder_reserve(builder, 1000);
+    int large_capacity = da_builder_capacity(builder);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(1000, large_capacity);
+    
+    // Attempt to "reserve" smaller capacity - should not shrink
+    da_builder_reserve(builder, 10);
+    TEST_ASSERT_EQUAL_INT(large_capacity, da_builder_capacity(builder));
+    
+    da_builder_destroy(&builder);
+}
+
+void test_da_builder_append_array_basic(void) {
+    da_builder builder = da_builder_create(sizeof(int));
+    
+    // Create source array with data
+    da_array source = da_new(sizeof(int), 3);
+    int values[] = {10, 20, 30};
+    for (int i = 0; i < 3; i++) {
+        da_push(source, &values[i]);
+    }
+    
+    // Append array to builder
+    da_builder_append_array(builder, source);
+    
+    TEST_ASSERT_EQUAL_INT(3, da_builder_length(builder));
+    
+    // Verify all elements were copied correctly
+    for (int i = 0; i < 3; i++) {
+        TEST_ASSERT_EQUAL_INT(values[i], DA_BUILDER_AT(builder, i, int));
+    }
+    
+    da_release(&source);
+    da_builder_destroy(&builder);
+}
+
+void test_da_builder_append_array_empty(void) {
+    da_builder builder = da_builder_create(sizeof(int));
+    
+    // Create empty source array
+    da_array source = da_new(sizeof(int), 0);
+    
+    // Append empty array to builder - should be no-op
+    da_builder_append_array(builder, source);
+    
+    TEST_ASSERT_EQUAL_INT(0, da_builder_length(builder));
+    
+    da_release(&source);
+    da_builder_destroy(&builder);
+}
+
+void test_da_builder_append_array_multiple(void) {
+    da_builder builder = da_builder_create(sizeof(int));
+    
+    // First array: [1, 2, 3]
+    da_array arr1 = da_new(sizeof(int), 3);
+    for (int i = 1; i <= 3; i++) {
+        da_push(arr1, &i);
+    }
+    
+    // Second array: [4, 5]
+    da_array arr2 = da_new(sizeof(int), 2);
+    for (int i = 4; i <= 5; i++) {
+        da_push(arr2, &i);
+    }
+    
+    // Append both arrays
+    da_builder_append_array(builder, arr1);
+    da_builder_append_array(builder, arr2);
+    
+    // Should have [1, 2, 3, 4, 5]
+    TEST_ASSERT_EQUAL_INT(5, da_builder_length(builder));
+    
+    for (int i = 0; i < 5; i++) {
+        TEST_ASSERT_EQUAL_INT(i + 1, DA_BUILDER_AT(builder, i, int));
+    }
+    
+    da_release(&arr1);
+    da_release(&arr2);
+    da_builder_destroy(&builder);
+}
+
+void test_da_builder_append_array_with_existing_data(void) {
+    da_builder builder = da_builder_create(sizeof(int));
+    
+    // Add some initial data
+    int initial[] = {100, 200};
+    for (int i = 0; i < 2; i++) {
+        da_builder_append(builder, &initial[i]);
+    }
+    
+    // Create array to append
+    da_array source = da_new(sizeof(int), 2);
+    int values[] = {300, 400};
+    for (int i = 0; i < 2; i++) {
+        da_push(source, &values[i]);
+    }
+    
+    // Append array to existing builder data
+    da_builder_append_array(builder, source);
+    
+    // Should have [100, 200, 300, 400]
+    TEST_ASSERT_EQUAL_INT(4, da_builder_length(builder));
+    TEST_ASSERT_EQUAL_INT(100, DA_BUILDER_AT(builder, 0, int));
+    TEST_ASSERT_EQUAL_INT(200, DA_BUILDER_AT(builder, 1, int));
+    TEST_ASSERT_EQUAL_INT(300, DA_BUILDER_AT(builder, 2, int));
+    TEST_ASSERT_EQUAL_INT(400, DA_BUILDER_AT(builder, 3, int));
+    
+    da_release(&source);
+    da_builder_destroy(&builder);
+}
+
+void test_da_builder_reserve_and_append_array_efficiency(void) {
+    da_builder builder = da_builder_create(sizeof(int));
+    
+    // Create large array
+    da_array large_array = da_new(sizeof(int), 1000);
+    for (int i = 0; i < 1000; i++) {
+        da_push(large_array, &i);
+    }
+    
+    // Pre-reserve exact space needed
+    da_builder_reserve(builder, 1000);
+    int reserved_capacity = da_builder_capacity(builder);
+    
+    // Append the large array
+    da_builder_append_array(builder, large_array);
+    
+    // Capacity should not have grown beyond reserved amount
+    TEST_ASSERT_EQUAL_INT(reserved_capacity, da_builder_capacity(builder));
+    TEST_ASSERT_EQUAL_INT(1000, da_builder_length(builder));
+    
+    // Verify all data is correct
+    for (int i = 0; i < 1000; i++) {
+        TEST_ASSERT_EQUAL_INT(i, DA_BUILDER_AT(builder, i, int));
+    }
+    
+    da_release(&large_array);
+    da_builder_destroy(&builder);
+}
+
 /* Peek Operations Tests */
 void test_da_peek_basic(void) {
     da_array arr = da_new(sizeof(int), 3);
@@ -2445,6 +2621,15 @@ int main(void) {
     RUN_TEST(test_da_builder_integration_with_arrays);
     RUN_TEST(test_da_builder_different_types);
     RUN_TEST(test_da_builder_stress_test);
+    
+    // Builder reserve and append_array tests
+    RUN_TEST(test_da_builder_reserve_basic);
+    RUN_TEST(test_da_builder_reserve_no_shrink);
+    RUN_TEST(test_da_builder_append_array_basic);
+    RUN_TEST(test_da_builder_append_array_empty);
+    RUN_TEST(test_da_builder_append_array_multiple);
+    RUN_TEST(test_da_builder_append_array_with_existing_data);
+    RUN_TEST(test_da_builder_reserve_and_append_array_efficiency);
 
     // Peek operations
     RUN_TEST(test_da_peek_basic);

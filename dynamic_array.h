@@ -814,6 +814,43 @@ DA_DEF void da_builder_destroy(da_builder* builder);
  */
 DA_DEF void da_builder_append(da_builder builder, const void* element);
 
+/**
+ * @brief Ensures the builder has at least the specified capacity
+ * @param builder Builder to modify (must not be NULL)
+ * @param new_capacity Minimum capacity required (must be >= 0)
+ * @note Only increases capacity, never decreases
+ * @note Asserts on allocation failure
+ * @note Useful for avoiding multiple reallocations when size is known
+ * @note Builders always use doubling growth strategy
+ *
+ * @code
+ * da_builder builder = DA_BUILDER_CREATE(int);
+ * da_builder_reserve(builder, 1000);  // Ensure space for 1000 elements
+ * for (int i = 0; i < 1000; i++) {
+ *     DA_BUILDER_APPEND(builder, i);  // No reallocations needed
+ * }
+ * @endcode
+ */
+DA_DEF void da_builder_reserve(da_builder builder, int new_capacity);
+
+/**
+ * @brief Appends all elements from an array to the builder
+ * @param builder Builder to modify (must not be NULL)
+ * @param arr Source array to append from (must not be NULL)
+ * @note Automatically grows builder capacity if needed
+ * @note Source array is unchanged
+ * @note Arrays must have the same element_size
+ * @note More efficient than multiple da_builder_append() calls
+ * @note Asserts on allocation failure or mismatched element sizes
+ *
+ * @code
+ * da_array source = DA_CREATE(int, 3);  // [10, 20, 30]
+ * da_builder builder = DA_BUILDER_CREATE(int);
+ * da_builder_append_array(builder, source);  // Builder now contains [10, 20, 30]
+ * @endcode
+ */
+DA_DEF void da_builder_append_array(da_builder builder, da_array arr);
+
 /** @} */ // end of builder_modification group
 
 /**
@@ -1391,6 +1428,39 @@ DA_DEF void da_builder_append(da_builder builder, const void* element) {
     void* dest = (char*)builder->data + (builder->length * builder->element_size);
     memcpy(dest, element, builder->element_size);
     builder->length++;
+}
+
+DA_DEF void da_builder_reserve(da_builder builder, int new_capacity) {
+    DA_ASSERT(builder != NULL);
+    DA_ASSERT(new_capacity >= 0);
+
+    if (new_capacity > builder->capacity) {
+        builder->data = DA_REALLOC(builder->data, new_capacity * builder->element_size);
+        DA_ASSERT(builder->data != NULL);
+        builder->capacity = new_capacity;
+    }
+}
+
+DA_DEF void da_builder_append_array(da_builder builder, da_array arr) {
+    DA_ASSERT(builder != NULL);
+    DA_ASSERT(arr != NULL);
+    DA_ASSERT(builder->element_size == arr->element_size);
+
+    if (arr->length == 0) return;  /* Nothing to append */
+
+    /* Ensure enough capacity */
+    int new_length = builder->length + arr->length;
+    if (new_length > builder->capacity) {
+        int new_capacity = da_builder_grow_capacity(builder->capacity, new_length);
+        builder->data = DA_REALLOC(builder->data, new_capacity * builder->element_size);
+        DA_ASSERT(builder->data != NULL);
+        builder->capacity = new_capacity;
+    }
+
+    /* Copy all elements from array at once */
+    void* dest_ptr = (char*)builder->data + (builder->length * builder->element_size);
+    memcpy(dest_ptr, arr->data, arr->length * arr->element_size);
+    builder->length = new_length;
 }
 
 DA_DEF da_array da_builder_to_array(da_builder* builder) {

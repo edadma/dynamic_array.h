@@ -2,7 +2,7 @@
  * @file dynamic_array.h
  * @brief reference-counted (optionally atomic) dynamic arrays with ArrayBuffer-style builder
  * @author dynamic_array.h contributors
- * @version 0.1.0
+ * @version 0.1.1
  * @date August 2025
  *
  * Single header library for mutable dynamic arrays with reference counting.

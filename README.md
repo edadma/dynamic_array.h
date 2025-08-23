@@ -43,7 +43,19 @@ A high-performance, (optionally atomic) reference-counted dynamic array library 
 
 ## What's New
 
-### v0.1.0 (Latest)
+### v0.1.1 (Latest)
+**Type Inference Support** (Thanks to @Maqi-x via PR #1)
+- Added automatic type inference for C23, C++11, and GCC/Clang
+- Macros like `DA_PUSH` now work without explicit type parameter when compiler supports it
+- Backward compatible - older compilers still work with explicit types
+- Improved developer ergonomics with modern C/C++ standards
+
+**API Improvements**
+- Renamed `DA_LEN`/`DA_CAP` to `DA_LENGTH`/`DA_CAPACITY` for clarity
+- Similarly renamed builder macros for consistency
+- Enhanced documentation with comprehensive examples
+
+### v0.1.0
 **Functional Programming Complete**
 - Added `da_reduce()` function with accumulator pattern for array reduction
 - Completes the functional programming trinity: filter → map → reduce

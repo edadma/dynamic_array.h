@@ -13,7 +13,7 @@ void tearDown(void) {
 
 /* Creation and Basic Properties Tests */
 void test_da_create_basic(void) {
-    da_array arr = da_create(sizeof(int), 10);
+    da_array arr = da_new(sizeof(int), 10);
 
     TEST_ASSERT_NOT_NULL(arr);
     TEST_ASSERT_EQUAL_INT(0, da_length(arr));
@@ -25,7 +25,7 @@ void test_da_create_basic(void) {
 }
 
 void test_da_create_zero_capacity(void) {
-    da_array arr = da_create(sizeof(int), 0);
+    da_array arr = da_new(sizeof(int), 0);
 
     TEST_ASSERT_NOT_NULL(arr);
     TEST_ASSERT_EQUAL_INT(0, da_length(arr));
@@ -47,7 +47,7 @@ void test_da_create_typed_macro(void) {
 
 /* Reference Counting Tests */
 void test_da_reference_counting(void) {
-    da_array arr = da_create(sizeof(int), 5);
+    da_array arr = da_new(sizeof(int), 5);
     TEST_ASSERT_EQUAL_INT(1, DA_ATOMIC_LOAD(&arr->ref_count));
 
     da_array arr2 = da_retain(arr);
@@ -63,7 +63,7 @@ void test_da_reference_counting(void) {
 }
 
 void test_da_multiple_retains(void) {
-    da_array arr = da_create(sizeof(int), 3);
+    da_array arr = da_new(sizeof(int), 3);
     da_array arr2 = da_retain(arr);
     da_array arr3 = da_retain(arr);
 
@@ -81,7 +81,7 @@ void test_da_multiple_retains(void) {
 
 /* Push and Growth Tests */
 void test_da_push_basic(void) {
-    da_array arr = da_create(sizeof(int), 2);
+    da_array arr = da_new(sizeof(int), 2);
 
     int val1 = 42;
     int val2 = 99;
@@ -96,7 +96,7 @@ void test_da_push_basic(void) {
 }
 
 void test_da_push_with_growth(void) {
-    da_array arr = da_create(sizeof(int), 1);
+    da_array arr = da_new(sizeof(int), 1);
 
     int val1 = 10;
     int val2 = 20;
@@ -112,7 +112,7 @@ void test_da_push_with_growth(void) {
 }
 
 void test_da_push_from_zero_capacity(void) {
-    da_array arr = da_create(sizeof(int), 0);
+    da_array arr = da_new(sizeof(int), 0);
 
     int val = 123;
     da_push(arr, &val);
@@ -125,7 +125,7 @@ void test_da_push_from_zero_capacity(void) {
 
 /* Access Tests */
 void test_da_get_and_set(void) {
-    da_array arr = da_create(sizeof(int), 5);
+    da_array arr = da_new(sizeof(int), 5);
 
     int val1 = 42;
     int val2 = 99;
@@ -149,7 +149,7 @@ void test_da_get_and_set(void) {
 }
 
 void test_da_data_access(void) {
-    da_array arr = da_create(sizeof(int), 3);
+    da_array arr = da_new(sizeof(int), 3);
 
     int val1 = 10;
     int val2 = 20;
@@ -171,7 +171,7 @@ void test_da_data_access(void) {
 
 /* Pop Tests */
 void test_da_pop_basic(void) {
-    da_array arr = da_create(sizeof(int), 3);
+    da_array arr = da_new(sizeof(int), 3);
 
     int val1 = 42;
     int val2 = 99;
@@ -193,7 +193,7 @@ void test_da_pop_basic(void) {
 }
 
 void test_da_pop_ignore_output(void) {
-    da_array arr = da_create(sizeof(int), 2);
+    da_array arr = da_new(sizeof(int), 2);
 
     int val = 123;
     da_push(arr, &val);
@@ -207,7 +207,7 @@ void test_da_pop_ignore_output(void) {
 
 /* Clear and Resize Tests */
 void test_da_clear(void) {
-    da_array arr = da_create(sizeof(int), 5);
+    da_array arr = da_new(sizeof(int), 5);
 
     int val1 = 10;
     int val2 = 20;
@@ -224,7 +224,7 @@ void test_da_clear(void) {
 }
 
 void test_da_reserve(void) {
-    da_array arr = da_create(sizeof(int), 2);
+    da_array arr = da_new(sizeof(int), 2);
 
     da_reserve(arr, 10);
     TEST_ASSERT_EQUAL_INT(10, da_capacity(arr));
@@ -238,7 +238,7 @@ void test_da_reserve(void) {
 }
 
 void test_da_resize_grow(void) {
-    da_array arr = da_create(sizeof(int), 3);
+    da_array arr = da_new(sizeof(int), 3);
 
     int val = 42;
     da_push(arr, &val);
@@ -258,7 +258,7 @@ void test_da_resize_grow(void) {
 }
 
 void test_da_resize_shrink(void) {
-    da_array arr = da_create(sizeof(int), 5);
+    da_array arr = da_new(sizeof(int), 5);
 
     int val1 = 10;
     int val2 = 20;
@@ -372,7 +372,7 @@ void test_da_different_types(void) {
 }
 
 void test_da_thread_safety_basic(void) {
-    da_array arr = da_create(sizeof(int), 5);
+    da_array arr = da_new(sizeof(int), 5);
 
     // Test that atomic operations work (even in single thread)
     TEST_ASSERT_EQUAL_INT(1, DA_ATOMIC_LOAD(&arr->ref_count));
@@ -395,6 +395,397 @@ void test_da_thread_safety_basic(void) {
 
     da_release(&arr);  // Should free
     TEST_ASSERT_NULL(arr);
+}
+
+/* Insert and Remove Tests */
+void test_da_insert_basic(void) {
+    da_array arr = da_new(sizeof(int), 5);
+    
+    // Add initial elements
+    int vals[] = {10, 20, 30};
+    for (int i = 0; i < 3; i++) {
+        da_push(arr, &vals[i]);
+    }
+    
+    // Insert in the middle
+    int insert_val = 25;
+    da_insert(arr, 2, &insert_val);
+    
+    TEST_ASSERT_EQUAL_INT(4, da_length(arr));
+    TEST_ASSERT_EQUAL_INT(10, DA_AT(arr, 0, int));
+    TEST_ASSERT_EQUAL_INT(20, DA_AT(arr, 1, int));
+    TEST_ASSERT_EQUAL_INT(25, DA_AT(arr, 2, int));
+    TEST_ASSERT_EQUAL_INT(30, DA_AT(arr, 3, int));
+    
+    da_release(&arr);
+}
+
+void test_da_insert_at_beginning(void) {
+    da_array arr = da_new(sizeof(int), 3);
+    
+    int val1 = 20;
+    int val2 = 30;
+    da_push(arr, &val1);
+    da_push(arr, &val2);
+    
+    int insert_val = 10;
+    da_insert(arr, 0, &insert_val);
+    
+    TEST_ASSERT_EQUAL_INT(3, da_length(arr));
+    TEST_ASSERT_EQUAL_INT(10, DA_AT(arr, 0, int));
+    TEST_ASSERT_EQUAL_INT(20, DA_AT(arr, 1, int));
+    TEST_ASSERT_EQUAL_INT(30, DA_AT(arr, 2, int));
+    
+    da_release(&arr);
+}
+
+void test_da_insert_at_end(void) {
+    da_array arr = da_new(sizeof(int), 3);
+    
+    int val1 = 10;
+    int val2 = 20;
+    da_push(arr, &val1);
+    da_push(arr, &val2);
+    
+    // Insert at end (equivalent to push)
+    int insert_val = 30;
+    da_insert(arr, da_length(arr), &insert_val);
+    
+    TEST_ASSERT_EQUAL_INT(3, da_length(arr));
+    TEST_ASSERT_EQUAL_INT(10, DA_AT(arr, 0, int));
+    TEST_ASSERT_EQUAL_INT(20, DA_AT(arr, 1, int));
+    TEST_ASSERT_EQUAL_INT(30, DA_AT(arr, 2, int));
+    
+    da_release(&arr);
+}
+
+void test_da_insert_with_growth(void) {
+    da_array arr = da_new(sizeof(int), 2);
+    
+    int val1 = 10;
+    int val2 = 30;
+    da_push(arr, &val1);
+    da_push(arr, &val2);
+    
+    // Array is full, insert should trigger growth
+    int insert_val = 20;
+    da_insert(arr, 1, &insert_val);
+    
+    TEST_ASSERT_TRUE(da_capacity(arr) > 2);
+    TEST_ASSERT_EQUAL_INT(3, da_length(arr));
+    TEST_ASSERT_EQUAL_INT(10, DA_AT(arr, 0, int));
+    TEST_ASSERT_EQUAL_INT(20, DA_AT(arr, 1, int));
+    TEST_ASSERT_EQUAL_INT(30, DA_AT(arr, 2, int));
+    
+    da_release(&arr);
+}
+
+void test_da_remove_basic(void) {
+    da_array arr = da_new(sizeof(int), 5);
+    
+    int vals[] = {10, 20, 30, 40};
+    for (int i = 0; i < 4; i++) {
+        da_push(arr, &vals[i]);
+    }
+    
+    // Remove from middle
+    int removed;
+    da_remove(arr, 2, &removed);
+    
+    TEST_ASSERT_EQUAL_INT(30, removed);
+    TEST_ASSERT_EQUAL_INT(3, da_length(arr));
+    TEST_ASSERT_EQUAL_INT(10, DA_AT(arr, 0, int));
+    TEST_ASSERT_EQUAL_INT(20, DA_AT(arr, 1, int));
+    TEST_ASSERT_EQUAL_INT(40, DA_AT(arr, 2, int));
+    
+    da_release(&arr);
+}
+
+void test_da_remove_first(void) {
+    da_array arr = da_new(sizeof(int), 3);
+    
+    int vals[] = {10, 20, 30};
+    for (int i = 0; i < 3; i++) {
+        da_push(arr, &vals[i]);
+    }
+    
+    int removed;
+    da_remove(arr, 0, &removed);
+    
+    TEST_ASSERT_EQUAL_INT(10, removed);
+    TEST_ASSERT_EQUAL_INT(2, da_length(arr));
+    TEST_ASSERT_EQUAL_INT(20, DA_AT(arr, 0, int));
+    TEST_ASSERT_EQUAL_INT(30, DA_AT(arr, 1, int));
+    
+    da_release(&arr);
+}
+
+void test_da_remove_last(void) {
+    da_array arr = da_new(sizeof(int), 3);
+    
+    int vals[] = {10, 20, 30};
+    for (int i = 0; i < 3; i++) {
+        da_push(arr, &vals[i]);
+    }
+    
+    int removed;
+    da_remove(arr, 2, &removed);
+    
+    TEST_ASSERT_EQUAL_INT(30, removed);
+    TEST_ASSERT_EQUAL_INT(2, da_length(arr));
+    TEST_ASSERT_EQUAL_INT(10, DA_AT(arr, 0, int));
+    TEST_ASSERT_EQUAL_INT(20, DA_AT(arr, 1, int));
+    
+    da_release(&arr);
+}
+
+void test_da_remove_ignore_output(void) {
+    da_array arr = da_new(sizeof(int), 3);
+    
+    int vals[] = {10, 20, 30};
+    for (int i = 0; i < 3; i++) {
+        da_push(arr, &vals[i]);
+    }
+    
+    // Remove without capturing the value
+    da_remove(arr, 1, NULL);
+    
+    TEST_ASSERT_EQUAL_INT(2, da_length(arr));
+    TEST_ASSERT_EQUAL_INT(10, DA_AT(arr, 0, int));
+    TEST_ASSERT_EQUAL_INT(30, DA_AT(arr, 1, int));
+    
+    da_release(&arr);
+}
+
+/* Memory Optimization Tests */
+void test_da_trim_basic(void) {
+    da_array arr = da_new(sizeof(int), 100);
+    
+    // Add some elements
+    for (int i = 0; i < 10; i++) {
+        da_push(arr, &i);
+    }
+    
+    TEST_ASSERT_EQUAL_INT(10, da_length(arr));
+    TEST_ASSERT_EQUAL_INT(100, da_capacity(arr));
+    
+    // Trim to smaller capacity
+    da_trim(arr, 20);
+    TEST_ASSERT_EQUAL_INT(10, da_length(arr));
+    TEST_ASSERT_EQUAL_INT(20, da_capacity(arr));
+    
+    // Verify data integrity
+    for (int i = 0; i < 10; i++) {
+        TEST_ASSERT_EQUAL_INT(i, DA_AT(arr, i, int));
+    }
+    
+    da_release(&arr);
+}
+
+void test_da_trim_to_zero(void) {
+    da_array arr = da_new(sizeof(int), 10);
+    
+    // Don't add any elements
+    TEST_ASSERT_EQUAL_INT(0, da_length(arr));
+    TEST_ASSERT_EQUAL_INT(10, da_capacity(arr));
+    
+    // Trim to zero capacity
+    da_trim(arr, 0);
+    TEST_ASSERT_EQUAL_INT(0, da_length(arr));
+    TEST_ASSERT_EQUAL_INT(0, da_capacity(arr));
+    TEST_ASSERT_NULL(da_data(arr));
+    
+    da_release(&arr);
+}
+
+void test_da_shrink_to_fit_macro(void) {
+    da_array arr = da_new(sizeof(int), 50);
+    
+    // Add some elements
+    for (int i = 0; i < 15; i++) {
+        da_push(arr, &i);
+    }
+    
+    TEST_ASSERT_EQUAL_INT(15, da_length(arr));
+    TEST_ASSERT_EQUAL_INT(50, da_capacity(arr));
+    
+    // Shrink to fit using macro
+    DA_SHRINK_TO_FIT(arr);
+    TEST_ASSERT_EQUAL_INT(15, da_length(arr));
+    TEST_ASSERT_EQUAL_INT(15, da_capacity(arr));
+    
+    // Verify data integrity
+    for (int i = 0; i < 15; i++) {
+        TEST_ASSERT_EQUAL_INT(i, DA_AT(arr, i, int));
+    }
+    
+    da_release(&arr);
+}
+
+/* Array Concatenation Tests */
+void test_da_append_array_basic(void) {
+    da_array arr1 = da_new(sizeof(int), 3);
+    da_array arr2 = da_new(sizeof(int), 3);
+    
+    // Setup arr1: [10, 20]
+    int vals1[] = {10, 20};
+    for (int i = 0; i < 2; i++) {
+        da_push(arr1, &vals1[i]);
+    }
+    
+    // Setup arr2: [30, 40]
+    int vals2[] = {30, 40};
+    for (int i = 0; i < 2; i++) {
+        da_push(arr2, &vals2[i]);
+    }
+    
+    // Append arr2 to arr1
+    da_append_array(arr1, arr2);
+    
+    // Check arr1: [10, 20, 30, 40]
+    TEST_ASSERT_EQUAL_INT(4, da_length(arr1));
+    TEST_ASSERT_EQUAL_INT(10, DA_AT(arr1, 0, int));
+    TEST_ASSERT_EQUAL_INT(20, DA_AT(arr1, 1, int));
+    TEST_ASSERT_EQUAL_INT(30, DA_AT(arr1, 2, int));
+    TEST_ASSERT_EQUAL_INT(40, DA_AT(arr1, 3, int));
+    
+    // Check arr2 is unchanged: [30, 40]
+    TEST_ASSERT_EQUAL_INT(2, da_length(arr2));
+    TEST_ASSERT_EQUAL_INT(30, DA_AT(arr2, 0, int));
+    TEST_ASSERT_EQUAL_INT(40, DA_AT(arr2, 1, int));
+    
+    da_release(&arr1);
+    da_release(&arr2);
+}
+
+void test_da_append_array_empty(void) {
+    da_array arr1 = da_new(sizeof(int), 2);
+    da_array arr2 = da_new(sizeof(int), 2);
+    
+    // arr1 has elements
+    int val = 42;
+    da_push(arr1, &val);
+    
+    // arr2 is empty - appending should do nothing
+    da_append_array(arr1, arr2);
+    
+    TEST_ASSERT_EQUAL_INT(1, da_length(arr1));
+    TEST_ASSERT_EQUAL_INT(42, DA_AT(arr1, 0, int));
+    
+    da_release(&arr1);
+    da_release(&arr2);
+}
+
+void test_da_append_array_with_growth(void) {
+    da_array arr1 = da_new(sizeof(int), 2);
+    da_array arr2 = da_new(sizeof(int), 3);
+    
+    // Fill arr1 to capacity: [10, 20]
+    int vals1[] = {10, 20};
+    for (int i = 0; i < 2; i++) {
+        da_push(arr1, &vals1[i]);
+    }
+    
+    // Setup arr2: [30, 40, 50]
+    int vals2[] = {30, 40, 50};
+    for (int i = 0; i < 3; i++) {
+        da_push(arr2, &vals2[i]);
+    }
+    
+    TEST_ASSERT_EQUAL_INT(2, da_capacity(arr1));
+    
+    // Append should trigger growth
+    da_append_array(arr1, arr2);
+    
+    TEST_ASSERT_TRUE(da_capacity(arr1) >= 5);
+    TEST_ASSERT_EQUAL_INT(5, da_length(arr1));
+    
+    // Verify data: [10, 20, 30, 40, 50]
+    TEST_ASSERT_EQUAL_INT(10, DA_AT(arr1, 0, int));
+    TEST_ASSERT_EQUAL_INT(20, DA_AT(arr1, 1, int));
+    TEST_ASSERT_EQUAL_INT(30, DA_AT(arr1, 2, int));
+    TEST_ASSERT_EQUAL_INT(40, DA_AT(arr1, 3, int));
+    TEST_ASSERT_EQUAL_INT(50, DA_AT(arr1, 4, int));
+    
+    da_release(&arr1);
+    da_release(&arr2);
+}
+
+void test_da_concat_basic(void) {
+    da_array arr1 = da_new(sizeof(int), 2);
+    da_array arr2 = da_new(sizeof(int), 2);
+    
+    // Setup arr1: [10, 20]
+    int vals1[] = {10, 20};
+    for (int i = 0; i < 2; i++) {
+        da_push(arr1, &vals1[i]);
+    }
+    
+    // Setup arr2: [30, 40]
+    int vals2[] = {30, 40};
+    for (int i = 0; i < 2; i++) {
+        da_push(arr2, &vals2[i]);
+    }
+    
+    // Concatenate (functional style)
+    da_array result = da_concat(arr1, arr2);
+    
+    // Check result: [10, 20, 30, 40]
+    TEST_ASSERT_EQUAL_INT(4, da_length(result));
+    TEST_ASSERT_EQUAL_INT(4, da_capacity(result)); // Exact capacity!
+    TEST_ASSERT_EQUAL_INT(10, DA_AT(result, 0, int));
+    TEST_ASSERT_EQUAL_INT(20, DA_AT(result, 1, int));
+    TEST_ASSERT_EQUAL_INT(30, DA_AT(result, 2, int));
+    TEST_ASSERT_EQUAL_INT(40, DA_AT(result, 3, int));
+    
+    // Check originals are unchanged
+    TEST_ASSERT_EQUAL_INT(2, da_length(arr1));
+    TEST_ASSERT_EQUAL_INT(2, da_length(arr2));
+    TEST_ASSERT_EQUAL_INT(10, DA_AT(arr1, 0, int));
+    TEST_ASSERT_EQUAL_INT(30, DA_AT(arr2, 0, int));
+    
+    da_release(&result);
+    da_release(&arr1);
+    da_release(&arr2);
+}
+
+void test_da_concat_empty_arrays(void) {
+    da_array arr1 = da_new(sizeof(int), 2);
+    da_array arr2 = da_new(sizeof(int), 2);
+    
+    // Both arrays empty
+    da_array result = da_concat(arr1, arr2);
+    
+    TEST_ASSERT_EQUAL_INT(0, da_length(result));
+    TEST_ASSERT_EQUAL_INT(0, da_capacity(result));
+    TEST_ASSERT_NULL(da_data(result));
+    
+    da_release(&result);
+    da_release(&arr1);
+    da_release(&arr2);
+}
+
+void test_da_concat_one_empty(void) {
+    da_array arr1 = da_new(sizeof(int), 2);
+    da_array arr2 = da_new(sizeof(int), 2);
+    
+    // Only arr1 has elements: [42, 99]
+    int vals[] = {42, 99};
+    for (int i = 0; i < 2; i++) {
+        da_push(arr1, &vals[i]);
+    }
+    
+    // arr2 is empty
+    da_array result = da_concat(arr1, arr2);
+    
+    TEST_ASSERT_EQUAL_INT(2, da_length(result));
+    TEST_ASSERT_EQUAL_INT(2, da_capacity(result));
+    TEST_ASSERT_EQUAL_INT(42, DA_AT(result, 0, int));
+    TEST_ASSERT_EQUAL_INT(99, DA_AT(result, 1, int));
+    
+    da_release(&result);
+    da_release(&arr1);
+    da_release(&arr2);
 }
 
 /* Builder Tests */
@@ -740,6 +1131,29 @@ int main(void) {
 
     // Array macros
     RUN_TEST(test_da_typed_macros);
+
+    // Array insert and remove
+    RUN_TEST(test_da_insert_basic);
+    RUN_TEST(test_da_insert_at_beginning);
+    RUN_TEST(test_da_insert_at_end);
+    RUN_TEST(test_da_insert_with_growth);
+    RUN_TEST(test_da_remove_basic);
+    RUN_TEST(test_da_remove_first);
+    RUN_TEST(test_da_remove_last);
+    RUN_TEST(test_da_remove_ignore_output);
+
+    // Array memory optimization
+    RUN_TEST(test_da_trim_basic);
+    RUN_TEST(test_da_trim_to_zero);
+    RUN_TEST(test_da_shrink_to_fit_macro);
+
+    // Array concatenation
+    RUN_TEST(test_da_append_array_basic);
+    RUN_TEST(test_da_append_array_empty);
+    RUN_TEST(test_da_append_array_with_growth);
+    RUN_TEST(test_da_concat_basic);
+    RUN_TEST(test_da_concat_empty_arrays);
+    RUN_TEST(test_da_concat_one_empty);
 
     // Array stress tests
     RUN_TEST(test_da_many_operations);

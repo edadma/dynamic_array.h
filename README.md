@@ -80,8 +80,8 @@ Configure the library before including:
 #define DA_GROWTH 16        // Fixed growth of 16 elements
 // #define DA_GROWTH undefined  // Use doubling strategy (default)
 
-// Thread safety (requires C11)
-#define DA_THREAD_SAFE 1
+// Atomic reference counting (requires C11)
+#define DA_ATOMIC_REFCOUNT 1
 
 #define DYNAMIC_ARRAY_IMPLEMENTATION
 #include "dynamic_array.h"
@@ -136,10 +136,10 @@ void da_resize(da_array arr, int new_length);
 
 ## Thread Safety
 
-Enable thread-safe reference counting:
+Enable atomic reference counting:
 
 ```c
-#define DA_THREAD_SAFE 1
+#define DA_ATOMIC_REFCOUNT 1
 #define DYNAMIC_ARRAY_IMPLEMENTATION
 #include "dynamic_array.h"
 ```

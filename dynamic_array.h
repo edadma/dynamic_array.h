@@ -19,7 +19,7 @@
  * #define DA_FREE free             // custom deallocator
  * #define DA_ASSERT assert         // custom assert macro
  * #define DA_GROWTH 16             // fixed growth increment (default: doubling)
- * #define DA_THREAD_SAFE 1         // enable thread-safe reference counting (C11 required)
+ * #define DA_ATOMIC_REFCOUNT 1     // enable atomic reference counting (C11 required)
  *
  * #define DYNAMIC_ARRAY_IMPLEMENTATION
  * #include "dynamic_array.h"
@@ -29,7 +29,7 @@
  *
  * @subsection arrays Regular Arrays
  * @code
- * da_array arr = da_create(sizeof(int), 10);
+ * da_array arr = da_new(sizeof(int), 10);
  * DA_PUSH(arr, 42);
  * int val = DA_AT(arr, 0, int);
  * da_release(&arr);  // arr becomes NULL
@@ -46,7 +46,7 @@
  *
  * @section threading Thread Safety
  *
- * When DA_THREAD_SAFE=1 (requires C11):
+ * When DA_ATOMIC_REFCOUNT=1 (requires C11):
  * - Reference counting operations (da_retain/da_release) are lock-free and thread-safe
  * - Array content modifications require external synchronization
  * - Builders are not thread-safe and should be used by single threads
@@ -93,19 +93,31 @@
 #define DA_ASSERT assert
 #endif
 
+#ifdef DA_STATIC
+#define DA_DEF static
+#else
+#define DA_DEF extern
+#endif
+
 /**
- * @brief Enable thread-safe reference counting (default: 0)
+ * @brief Enable atomic reference counting (default: 0)
  * @note Requires C11 and stdatomic.h support
- * @note Only reference counting is thread-safe, not array operations
+ * @note Only reference counting is atomic/thread-safe, not array operations
+ * @warning Array modifications (push/pop/set) still require external synchronization
  */
-#ifndef DA_THREAD_SAFE
-#define DA_THREAD_SAFE 0
+#ifndef DA_ATOMIC_REFCOUNT
+#define DA_ATOMIC_REFCOUNT 0
 #endif
 
 /** @} */ // end of config group
 
+/* Check C11 support for atomic operations */
+#if DA_ATOMIC_REFCOUNT && __STDC_VERSION__ < 201112L
+    #error "DA_ATOMIC_REFCOUNT requires C11 or later for atomic support (compile with -std=c11 or later)"
+#endif
+
 /* Thread-safe atomic operations */
-#if DA_THREAD_SAFE && __STDC_VERSION__ >= 201112L
+#if DA_ATOMIC_REFCOUNT
     #include <stdatomic.h>
     #define DA_ATOMIC_INT _Atomic int
     #define DA_ATOMIC_FETCH_ADD(ptr, val) atomic_fetch_add(ptr, val)
@@ -137,10 +149,10 @@
 /**
  * @brief Reference-counted dynamic array structure
  * @note Do not access fields directly - use provided functions and macros
- * @note Thread-safe reference counting when DA_THREAD_SAFE=1
+ * @note Atomic reference counting when DA_ATOMIC_REFCOUNT=1
  */
 typedef struct {
-    DA_ATOMIC_INT ref_count;  /**< @brief Reference count (atomic if DA_THREAD_SAFE=1) */
+    DA_ATOMIC_INT ref_count;  /**< @brief Reference count (atomic if DA_ATOMIC_REFCOUNT=1) */
     int length;               /**< @brief Current number of elements */
     int capacity;             /**< @brief Allocated capacity */
     int element_size;         /**< @brief Size of each element in bytes */
@@ -175,22 +187,22 @@ typedef struct {
  * @return New array with ref_count = 1
  * @note Asserts on allocation failure or invalid parameters
  * @note Uses configured growth strategy (DA_GROWTH) for expansions
- * @note Thread-safe reference counting if DA_THREAD_SAFE=1
+ * @note Atomic reference counting if DA_ATOMIC_REFCOUNT=1
  *
  * @code
- * da_array arr = da_create(sizeof(int), 10);
+ * da_array arr = da_new(sizeof(int), 10);
  * DA_PUSH(arr, 42);
  * da_release(&arr);
  * @endcode
  */
-da_array da_create(int element_size, int initial_capacity);
+DA_DEF da_array da_new(int element_size, int initial_capacity);
 
 /**
  * @brief Releases a reference to an array, potentially freeing it
  * @param arr Pointer to array pointer (will be set to NULL)
  * @note Always sets *arr to NULL for safety, regardless of ref count
  * @note Only frees memory when ref_count reaches 0
- * @note Thread-safe if DA_THREAD_SAFE=1
+ * @note Thread-safe if DA_ATOMIC_REFCOUNT=1
  * @note Asserts if arr or *arr is NULL
  *
  * @code
@@ -198,13 +210,13 @@ da_array da_create(int element_size, int initial_capacity);
  * da_release(&arr);  // arr becomes NULL, memory freed
  * @endcode
  */
-void da_release(da_array* arr);
+DA_DEF void da_release(da_array* arr);
 
 /**
  * @brief Increments reference count for sharing an array
  * @param arr Array to retain (must not be NULL)
  * @return The same array pointer (for convenience)
- * @note Thread-safe if DA_THREAD_SAFE=1
+ * @note Thread-safe if DA_ATOMIC_REFCOUNT=1
  * @note Use da_release() to decrement reference count
  *
  * @code
@@ -213,7 +225,7 @@ void da_release(da_array* arr);
  * da_release(&shared);  // Decrements count, shared becomes NULL
  * @endcode
  */
-da_array da_retain(da_array arr);
+DA_DEF da_array da_retain(da_array arr);
 
 /** @} */ // end of array_lifecycle group
 
@@ -236,7 +248,7 @@ da_array da_retain(da_array arr);
  * *ptr = 42;  // Direct modification
  * @endcode
  */
-void* da_get(da_array arr, int index);
+DA_DEF void* da_get(da_array arr, int index);
 
 /**
  * @brief Gets direct pointer to the underlying data array
@@ -252,7 +264,7 @@ void* da_get(da_array arr, int index);
  * data[1] = 99;
  * @endcode
  */
-void* da_data(da_array arr);
+DA_DEF void* da_data(da_array arr);
 
 /**
  * @brief Sets the value of an element at the specified index
@@ -267,7 +279,7 @@ void* da_data(da_array arr);
  * da_set(arr, 0, &value);
  * @endcode
  */
-void da_set(da_array arr, int index, const void* element);
+DA_DEF void da_set(da_array arr, int index, const void* element);
 
 /** @} */ // end of array_access group
 
@@ -290,7 +302,42 @@ void da_set(da_array arr, int index, const void* element);
  * da_push(arr, &value);
  * @endcode
  */
-void da_push(da_array arr, const void* element);
+DA_DEF void da_push(da_array arr, const void* element);
+
+/**
+ * @brief Inserts an element at the specified index
+ * @param arr Array to modify (must not be NULL)
+ * @param index Position to insert at (must be >= 0 and <= length)
+ * @param element Pointer to element data to copy (must not be NULL)
+ * @note Shifts all elements at and after index to the right
+ * @note Automatically grows array capacity if needed
+ * @note index == length is equivalent to da_push()
+ * @note Asserts on out-of-bounds index or NULL parameters
+ *
+ * @code
+ * int value = 42;
+ * da_insert(arr, 0, &value);  // Insert at beginning
+ * da_insert(arr, da_length(arr), &value);  // Insert at end (same as push)
+ * @endcode
+ */
+DA_DEF void da_insert(da_array arr, int index, const void* element);
+
+/**
+ * @brief Removes and optionally returns an element at the specified index
+ * @param arr Array to modify (must not be NULL)
+ * @param index Position to remove from (must be >= 0 and < length)
+ * @param out Optional pointer to store removed element (can be NULL)
+ * @note Shifts all elements after index to the left
+ * @note Does not shrink capacity
+ * @note Asserts on out-of-bounds index
+ *
+ * @code
+ * int removed;
+ * da_remove(arr, 0, &removed);  // Remove first element
+ * da_remove(arr, 2, NULL);      // Remove third element, discard value
+ * @endcode
+ */
+DA_DEF void da_remove(da_array arr, int index, void* out);
 
 /**
  * @brief Removes and optionally returns the last element
@@ -306,7 +353,7 @@ void da_push(da_array arr, const void* element);
  * da_pop(arr, NULL);     // Discard the value
  * @endcode
  */
-void da_pop(da_array arr, void* out);
+DA_DEF void da_pop(da_array arr, void* out);
 
 /**
  * @brief Removes all elements from the array
@@ -319,7 +366,7 @@ void da_pop(da_array arr, void* out);
  * assert(da_length(arr) == 0);
  * @endcode
  */
-void da_clear(da_array arr);
+DA_DEF void da_clear(da_array arr);
 
 /** @} */ // end of array_modification group
 
@@ -340,7 +387,7 @@ void da_clear(da_array arr);
  * }
  * @endcode
  */
-int da_length(da_array arr);
+DA_DEF int da_length(da_array arr);
 
 /**
  * @brief Gets the current allocated capacity of the array
@@ -351,7 +398,7 @@ int da_length(da_array arr);
  * printf("Array using %d/%d slots\n", da_length(arr), da_capacity(arr));
  * @endcode
  */
-int da_capacity(da_array arr);
+DA_DEF int da_capacity(da_array arr);
 
 /**
  * @brief Ensures the array has at least the specified capacity
@@ -368,7 +415,7 @@ int da_capacity(da_array arr);
  * }
  * @endcode
  */
-void da_reserve(da_array arr, int new_capacity);
+DA_DEF void da_reserve(da_array arr, int new_capacity);
 
 /**
  * @brief Changes the array length, growing or shrinking as needed
@@ -385,7 +432,61 @@ void da_reserve(da_array arr, int new_capacity);
  * // Elements old_length..99 are zero-initialized
  * @endcode
  */
-void da_resize(da_array arr, int new_length);
+DA_DEF void da_resize(da_array arr, int new_length);
+
+/**
+ * @brief Reduces the array's allocated capacity to a specific size
+ * @param arr Array to modify (must not be NULL)
+ * @param new_capacity New capacity for the array (must be >= length)
+ * @note Only reduces capacity, never increases
+ * @note Useful for memory optimization after removing many elements
+ * @note Asserts if new_capacity < current length
+ * @note Asserts on allocation failure
+ *
+ * @code
+ * da_array arr = DA_CREATE(int, 1000);  // capacity = 1000
+ * // ... add 50 elements, remove 30, now length = 20
+ * da_trim(arr, 30);  // capacity = 30, saves memory
+ * @endcode
+ */
+DA_DEF void da_trim(da_array arr, int new_capacity);
+
+/**
+ * @brief Appends all elements from source array to destination array
+ * @param dest Destination array to append to (must not be NULL)
+ * @param src Source array to read from (must not be NULL)
+ * @note Automatically grows dest capacity if needed
+ * @note Source array is unchanged
+ * @note Arrays must have the same element_size
+ * @note Asserts on allocation failure or mismatched element sizes
+ *
+ * @code
+ * da_array arr1 = DA_CREATE(int, 2);  // [10, 20]
+ * da_array arr2 = DA_CREATE(int, 2);  // [30, 40]  
+ * da_append_array(arr1, arr2);        // arr1 = [10, 20, 30, 40]
+ * @endcode
+ */
+DA_DEF void da_append_array(da_array dest, da_array src);
+
+/**
+ * @brief Creates a new array by concatenating two arrays
+ * @param arr1 First array (must not be NULL)
+ * @param arr2 Second array (must not be NULL) 
+ * @return New array containing elements from arr1 followed by arr2
+ * @note Arrays must have the same element_size
+ * @note Original arrays are unchanged
+ * @note Returned array has ref_count = 1
+ * @note Capacity is exactly length (no wasted space)
+ * @note Asserts on allocation failure or mismatched element sizes
+ *
+ * @code
+ * da_array nums1 = DA_CREATE(int, 2);  // [10, 20]
+ * da_array nums2 = DA_CREATE(int, 2);  // [30, 40]
+ * da_array combined = da_concat(nums1, nums2);  // [10, 20, 30, 40]
+ * // nums1 and nums2 remain unchanged
+ * @endcode
+ */
+DA_DEF da_array da_concat(da_array arr1, da_array arr2);
 
 /** @} */ // end of array_utility group
 
@@ -410,7 +511,7 @@ void da_resize(da_array arr, int new_length);
  * da_array arr = da_builder_to_array(&builder);
  * @endcode
  */
-da_builder da_builder_create(int element_size);
+DA_DEF da_builder da_builder_create(int element_size);
 
 /**
  * @brief Converts builder to a ref-counted array with exact capacity
@@ -428,7 +529,7 @@ da_builder da_builder_create(int element_size);
  * assert(da_capacity(arr) == da_length(arr));    // Exact sizing
  * @endcode
  */
-da_array da_builder_to_array(da_builder* builder);
+DA_DEF da_array da_builder_to_array(da_builder* builder);
 
 /**
  * @brief Removes all elements from the builder
@@ -441,7 +542,7 @@ da_array da_builder_to_array(da_builder* builder);
  * assert(da_builder_length(builder) == 0);
  * @endcode
  */
-void da_builder_clear(da_builder builder);
+DA_DEF void da_builder_clear(da_builder builder);
 
 /**
  * @brief Destroys a builder and frees its memory
@@ -455,7 +556,7 @@ void da_builder_clear(da_builder builder);
  * da_builder_destroy(&builder);  // builder becomes NULL
  * @endcode
  */
-void da_builder_destroy(da_builder* builder);
+DA_DEF void da_builder_destroy(da_builder* builder);
 
 /** @} */ // end of builder_lifecycle group
 
@@ -479,7 +580,7 @@ void da_builder_destroy(da_builder* builder);
  * da_builder_append(builder, &value);
  * @endcode
  */
-void da_builder_append(da_builder builder, const void* element);
+DA_DEF void da_builder_append(da_builder builder, const void* element);
 
 /** @} */ // end of builder_modification group
 
@@ -494,14 +595,14 @@ void da_builder_append(da_builder builder, const void* element);
  * @param builder Builder to query (must not be NULL)
  * @return Number of elements currently in the builder
  */
-int da_builder_length(da_builder builder);
+DA_DEF int da_builder_length(da_builder builder);
 
 /**
  * @brief Gets the current allocated capacity of the builder
  * @param builder Builder to query (must not be NULL)
  * @return Number of elements that can be stored without reallocation
  */
-int da_builder_capacity(da_builder builder);
+DA_DEF int da_builder_capacity(da_builder builder);
 
 /**
  * @brief Gets a pointer to an element at the specified index
@@ -510,7 +611,7 @@ int da_builder_capacity(da_builder builder);
  * @return Pointer to element at index
  * @note Asserts on out-of-bounds access
  */
-void* da_builder_get(da_builder builder, int index);
+DA_DEF void* da_builder_get(da_builder builder, int index);
 
 /**
  * @brief Sets the value of an element at the specified index
@@ -519,7 +620,7 @@ void* da_builder_get(da_builder builder, int index);
  * @param element Pointer to element data to copy (must not be NULL)
  * @note Asserts on out-of-bounds access or NULL parameters
  */
-void da_builder_set(da_builder builder, int index, const void* element);
+DA_DEF void da_builder_set(da_builder builder, int index, const void* element);
 
 /** @} */ // end of builder_utility group
 
@@ -603,24 +704,47 @@ void da_builder_set(da_builder builder, int index, const void* element);
  * @brief Resize array (shorthand for da_resize)
  */
 
+/**
+ * @def DA_INSERT(arr, i, val)
+ * @brief Type-safe element insert (with typeof support)
+ * @param arr Array to modify
+ * @param i Index to insert at
+ * @param val Value to insert
+ * @note With typeof support: DA_INSERT(arr, 0, 42)
+ * @note Without typeof: DA_INSERT(arr, 0, 42, int)
+ */
+
+/**
+ * @def DA_REMOVE(arr, i, out_ptr)
+ * @brief Remove element at index (shorthand for da_remove)
+ * @param arr Array to modify
+ * @param i Index to remove from
+ * @param out_ptr Optional pointer to store removed element (can be NULL)
+ */
+
 /** @} */ // end of array_macros group
 #if DA_HAS_TYPEOF
-    #define DA_CREATE(T, cap) da_create(sizeof(T), cap)
+    #define DA_CREATE(T, cap) da_new(sizeof(T), cap)
     #define DA_PUSH(arr, val) do { DA_TYPEOF(val) _temp = (val); da_push(arr, &_temp); } while(0)
     #define DA_PUT(arr, i, val) do { DA_TYPEOF(val) _temp = (val); da_set(arr, i, &_temp); } while(0)
+    #define DA_INSERT(arr, i, val) do { DA_TYPEOF(val) _temp = (val); da_insert(arr, i, &_temp); } while(0)
 #else
-    #define DA_CREATE(T, cap) da_create(sizeof(T), cap)
+    #define DA_CREATE(T, cap) da_new(sizeof(T), cap)
     #define DA_PUSH(arr, val, T) do { T _temp = (val); da_push(arr, &_temp); } while(0)
     #define DA_PUT(arr, i, val, T) do { T _temp = (val); da_set(arr, i, &_temp); } while(0)
+    #define DA_INSERT(arr, i, val, T) do { T _temp = (val); da_insert(arr, i, &_temp); } while(0)
 #endif
 
 #define DA_LEN(arr) da_length(arr)
 #define DA_CAP(arr) da_capacity(arr)
 #define DA_AT(arr, i, T) (*(T*)da_get(arr, i))
 #define DA_POP(arr, out_ptr) da_pop(arr, out_ptr)
+#define DA_REMOVE(arr, i, out_ptr) da_remove(arr, i, out_ptr)
 #define DA_CLEAR(arr) da_clear(arr)
 #define DA_RESERVE(arr, cap) da_reserve(arr, cap)
 #define DA_RESIZE(arr, len) da_resize(arr, len)
+#define DA_TRIM(arr, cap) da_trim(arr, cap)
+#define DA_SHRINK_TO_FIT(arr) da_trim(arr, da_length(arr))
 
 /**
  * @defgroup builder_macros Type-Safe Builder Macros
@@ -742,7 +866,7 @@ static int da_builder_grow_capacity(int current_capacity, int min_needed) {
 
 /* Array Implementation */
 
-da_array da_create(int element_size, int initial_capacity) {
+DA_DEF da_array da_new(int element_size, int initial_capacity) {
     DA_ASSERT(element_size > 0);
     DA_ASSERT(initial_capacity >= 0);
 
@@ -764,7 +888,7 @@ da_array da_create(int element_size, int initial_capacity) {
     return arr;
 }
 
-void da_release(da_array* arr) {
+DA_DEF void da_release(da_array* arr) {
     DA_ASSERT(arr != NULL);
     DA_ASSERT(*arr != NULL);
 
@@ -780,24 +904,24 @@ void da_release(da_array* arr) {
     *arr = NULL;  /* Always NULL the pointer for safety */
 }
 
-da_array da_retain(da_array arr) {
+DA_DEF da_array da_retain(da_array arr) {
     DA_ASSERT(arr != NULL);
     DA_ATOMIC_FETCH_ADD(&arr->ref_count, 1);
     return arr;
 }
 
-void* da_get(da_array arr, int index) {
+DA_DEF void* da_get(da_array arr, int index) {
     DA_ASSERT(arr != NULL);
     DA_ASSERT(index >= 0 && index < arr->length);
     return (char*)arr->data + (index * arr->element_size);
 }
 
-void* da_data(da_array arr) {
+DA_DEF void* da_data(da_array arr) {
     DA_ASSERT(arr != NULL);
     return arr->data;
 }
 
-void da_set(da_array arr, int index, const void* element) {
+DA_DEF void da_set(da_array arr, int index, const void* element) {
     DA_ASSERT(arr != NULL);
     DA_ASSERT(element != NULL);
     DA_ASSERT(index >= 0 && index < arr->length);
@@ -806,7 +930,7 @@ void da_set(da_array arr, int index, const void* element) {
     memcpy(dest, element, arr->element_size);
 }
 
-void da_push(da_array arr, const void* element) {
+DA_DEF void da_push(da_array arr, const void* element) {
     DA_ASSERT(arr != NULL);
     DA_ASSERT(element != NULL);
 
@@ -822,7 +946,55 @@ void da_push(da_array arr, const void* element) {
     arr->length++;
 }
 
-void da_pop(da_array arr, void* out) {
+DA_DEF void da_insert(da_array arr, int index, const void* element) {
+    DA_ASSERT(arr != NULL);
+    DA_ASSERT(element != NULL);
+    DA_ASSERT(index >= 0 && index <= arr->length);
+
+    /* Grow array if needed */
+    if (arr->length >= arr->capacity) {
+        int new_capacity = da_grow_capacity(arr->capacity, arr->length + 1);
+        arr->data = DA_REALLOC(arr->data, new_capacity * arr->element_size);
+        DA_ASSERT(arr->data != NULL);
+        arr->capacity = new_capacity;
+    }
+
+    /* Shift elements to the right if not inserting at the end */
+    if (index < arr->length) {
+        void* src = (char*)arr->data + (index * arr->element_size);
+        void* dest = (char*)arr->data + ((index + 1) * arr->element_size);
+        int bytes_to_move = (arr->length - index) * arr->element_size;
+        memmove(dest, src, bytes_to_move);
+    }
+
+    /* Insert the new element */
+    void* insert_pos = (char*)arr->data + (index * arr->element_size);
+    memcpy(insert_pos, element, arr->element_size);
+    arr->length++;
+}
+
+DA_DEF void da_remove(da_array arr, int index, void* out) {
+    DA_ASSERT(arr != NULL);
+    DA_ASSERT(index >= 0 && index < arr->length);
+
+    /* Copy element to output if requested */
+    if (out != NULL) {
+        void* element_ptr = (char*)arr->data + (index * arr->element_size);
+        memcpy(out, element_ptr, arr->element_size);
+    }
+
+    /* Shift elements to the left if not removing the last element */
+    if (index < arr->length - 1) {
+        void* dest = (char*)arr->data + (index * arr->element_size);
+        void* src = (char*)arr->data + ((index + 1) * arr->element_size);
+        int bytes_to_move = (arr->length - index - 1) * arr->element_size;
+        memmove(dest, src, bytes_to_move);
+    }
+
+    arr->length--;
+}
+
+DA_DEF void da_pop(da_array arr, void* out) {
     DA_ASSERT(arr != NULL);
     DA_ASSERT(arr->length > 0);
 
@@ -834,22 +1006,22 @@ void da_pop(da_array arr, void* out) {
     }
 }
 
-void da_clear(da_array arr) {
+DA_DEF void da_clear(da_array arr) {
     DA_ASSERT(arr != NULL);
     arr->length = 0;
 }
 
-int da_length(da_array arr) {
+DA_DEF int da_length(da_array arr) {
     DA_ASSERT(arr != NULL);
     return arr->length;
 }
 
-int da_capacity(da_array arr) {
+DA_DEF int da_capacity(da_array arr) {
     DA_ASSERT(arr != NULL);
     return arr->capacity;
 }
 
-void da_reserve(da_array arr, int new_capacity) {
+DA_DEF void da_reserve(da_array arr, int new_capacity) {
     DA_ASSERT(arr != NULL);
     DA_ASSERT(new_capacity >= 0);
 
@@ -860,7 +1032,7 @@ void da_reserve(da_array arr, int new_capacity) {
     }
 }
 
-void da_resize(da_array arr, int new_length) {
+DA_DEF void da_resize(da_array arr, int new_length) {
     DA_ASSERT(arr != NULL);
     DA_ASSERT(new_length >= 0);
 
@@ -878,9 +1050,86 @@ void da_resize(da_array arr, int new_length) {
     arr->length = new_length;
 }
 
+DA_DEF void da_trim(da_array arr, int new_capacity) {
+    DA_ASSERT(arr != NULL);
+    DA_ASSERT(new_capacity >= arr->length);
+
+    if (new_capacity < arr->capacity) {
+        if (new_capacity == 0) {
+            if (arr->data) {
+                DA_FREE(arr->data);
+                arr->data = NULL;
+            }
+        } else {
+            arr->data = DA_REALLOC(arr->data, new_capacity * arr->element_size);
+            DA_ASSERT(arr->data != NULL);
+        }
+        arr->capacity = new_capacity;
+    }
+}
+
+DA_DEF void da_append_array(da_array dest, da_array src) {
+    DA_ASSERT(dest != NULL);
+    DA_ASSERT(src != NULL);
+    DA_ASSERT(dest->element_size == src->element_size);
+
+    if (src->length == 0) return;  /* Nothing to append */
+
+    /* Ensure dest has enough capacity */
+    int new_length = dest->length + src->length;
+    if (new_length > dest->capacity) {
+        int new_capacity = da_grow_capacity(dest->capacity, new_length);
+        dest->data = DA_REALLOC(dest->data, new_capacity * dest->element_size);
+        DA_ASSERT(dest->data != NULL);
+        dest->capacity = new_capacity;
+    }
+
+    /* Copy all elements from src to end of dest */
+    void* dest_ptr = (char*)dest->data + (dest->length * dest->element_size);
+    memcpy(dest_ptr, src->data, src->length * src->element_size);
+    dest->length = new_length;
+}
+
+DA_DEF da_array da_concat(da_array arr1, da_array arr2) {
+    DA_ASSERT(arr1 != NULL);
+    DA_ASSERT(arr2 != NULL);
+    DA_ASSERT(arr1->element_size == arr2->element_size);
+
+    int total_length = arr1->length + arr2->length;
+    
+    /* Create new array with exact capacity */
+    da_array result = (da_array)DA_MALLOC(sizeof(da_array_t));
+    DA_ASSERT(result != NULL);
+
+    DA_ATOMIC_STORE(&result->ref_count, 1);
+    result->length = total_length;
+    result->capacity = total_length;  /* Exact capacity */
+    result->element_size = arr1->element_size;
+
+    if (total_length > 0) {
+        result->data = DA_MALLOC(total_length * result->element_size);
+        DA_ASSERT(result->data != NULL);
+
+        /* Copy arr1 elements first */
+        if (arr1->length > 0) {
+            memcpy(result->data, arr1->data, arr1->length * result->element_size);
+        }
+
+        /* Copy arr2 elements after arr1 */
+        if (arr2->length > 0) {
+            void* dest_ptr = (char*)result->data + (arr1->length * result->element_size);
+            memcpy(dest_ptr, arr2->data, arr2->length * result->element_size);
+        }
+    } else {
+        result->data = NULL;
+    }
+
+    return result;
+}
+
 /* Builder Implementation */
 
-da_builder da_builder_create(int element_size) {
+DA_DEF da_builder da_builder_create(int element_size) {
     DA_ASSERT(element_size > 0);
 
     da_builder builder = (da_builder)DA_MALLOC(sizeof(da_builder_t));
@@ -894,7 +1143,7 @@ da_builder da_builder_create(int element_size) {
     return builder;
 }
 
-void da_builder_append(da_builder builder, const void* element) {
+DA_DEF void da_builder_append(da_builder builder, const void* element) {
     DA_ASSERT(builder != NULL);
     DA_ASSERT(element != NULL);
 
@@ -910,7 +1159,7 @@ void da_builder_append(da_builder builder, const void* element) {
     builder->length++;
 }
 
-da_array da_builder_to_array(da_builder* builder) {
+DA_DEF da_array da_builder_to_array(da_builder* builder) {
     DA_ASSERT(builder != NULL);
     DA_ASSERT(*builder != NULL);
 
@@ -943,12 +1192,12 @@ da_array da_builder_to_array(da_builder* builder) {
     return arr;
 }
 
-void da_builder_clear(da_builder builder) {
+DA_DEF void da_builder_clear(da_builder builder) {
     DA_ASSERT(builder != NULL);
     builder->length = 0;
 }
 
-void da_builder_destroy(da_builder* builder) {
+DA_DEF void da_builder_destroy(da_builder* builder) {
     DA_ASSERT(builder != NULL);
     DA_ASSERT(*builder != NULL);
 
@@ -959,23 +1208,23 @@ void da_builder_destroy(da_builder* builder) {
     *builder = NULL;
 }
 
-int da_builder_length(da_builder builder) {
+DA_DEF int da_builder_length(da_builder builder) {
     DA_ASSERT(builder != NULL);
     return builder->length;
 }
 
-int da_builder_capacity(da_builder builder) {
+DA_DEF int da_builder_capacity(da_builder builder) {
     DA_ASSERT(builder != NULL);
     return builder->capacity;
 }
 
-void* da_builder_get(da_builder builder, int index) {
+DA_DEF void* da_builder_get(da_builder builder, int index) {
     DA_ASSERT(builder != NULL);
     DA_ASSERT(index >= 0 && index < builder->length);
     return (char*)builder->data + (index * builder->element_size);
 }
 
-void da_builder_set(da_builder builder, int index, const void* element) {
+DA_DEF void da_builder_set(da_builder builder, int index, const void* element) {
     DA_ASSERT(builder != NULL);
     DA_ASSERT(element != NULL);
     DA_ASSERT(index >= 0 && index < builder->length);

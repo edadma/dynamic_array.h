@@ -368,6 +368,36 @@ DA_DEF void da_pop(da_array arr, void* out);
  */
 DA_DEF void da_clear(da_array arr);
 
+/**
+ * @brief Gets a pointer to the last element without removing it
+ * @param arr Array to peek (must not be NULL and not empty)
+ * @return Pointer to the last element
+ * @note Asserts if array is empty
+ * @note Returned pointer is valid until array is modified or released
+ * @note Useful for stack-like access patterns
+ *
+ * @code
+ * int* last_ptr = (int*)da_peek(arr);
+ * printf("Last element: %d\n", *last_ptr);
+ * @endcode
+ */
+DA_DEF void* da_peek(da_array arr);
+
+/**
+ * @brief Gets a pointer to the first element without removing it
+ * @param arr Array to peek (must not be NULL and not empty)
+ * @return Pointer to the first element
+ * @note Asserts if array is empty
+ * @note Returned pointer is valid until array is modified or released
+ * @note Useful for queue-like access patterns
+ *
+ * @code
+ * int* first_ptr = (int*)da_peek_first(arr);
+ * printf("First element: %d\n", *first_ptr);
+ * @endcode
+ */
+DA_DEF void* da_peek_first(da_array arr);
+
 /** @} */ // end of array_modification group
 
 /**
@@ -487,6 +517,132 @@ DA_DEF void da_append_array(da_array dest, da_array src);
  * @endcode
  */
 DA_DEF da_array da_concat(da_array arr1, da_array arr2);
+
+/**
+ * @brief Appends raw C array data to the dynamic array
+ * @param arr Array to modify (must not be NULL)
+ * @param data Pointer to raw data array (must not be NULL)
+ * @param count Number of elements to append (must be >= 0)
+ * @note Automatically grows array capacity if needed
+ * @note More efficient than multiple da_push() calls
+ * @note Asserts on allocation failure or NULL parameters
+ *
+ * @code
+ * int raw_data[] = {10, 20, 30, 40};
+ * da_append_raw(arr, raw_data, 4);  // Append all 4 elements at once
+ * @endcode
+ */
+DA_DEF void da_append_raw(da_array arr, const void* data, int count);
+
+/**
+ * @brief Fills the array with multiple copies of an element
+ * @param arr Array to modify (must not be NULL)
+ * @param element Pointer to element to replicate (must not be NULL)
+ * @param count Number of copies to add (must be >= 0)
+ * @note Automatically grows array capacity if needed
+ * @note More efficient than multiple da_push() calls
+ * @note Asserts on allocation failure or NULL parameters
+ *
+ * @code
+ * int zero = 0;
+ * da_fill(arr, &zero, 100);  // Add 100 zeros to array
+ * @endcode
+ */
+DA_DEF void da_fill(da_array arr, const void* element, int count);
+
+/**
+ * @brief Creates a new array containing elements from a range [start, end)
+ * @param arr Source array to slice from (must not be NULL)
+ * @param start Starting index (inclusive, must be >= 0)
+ * @param end Ending index (exclusive, must be >= start and <= length)
+ * @return New array containing elements from [start, end)
+ * @note Original array is unchanged
+ * @note Returned array has ref_count = 1 and exact capacity
+ * @note Empty range (start == end) returns empty array
+ * @note Asserts on out-of-bounds indices or allocation failure
+ *
+ * @code
+ * da_array original = DA_CREATE(int, 5);  // [10, 20, 30, 40, 50]
+ * da_array slice = da_slice(original, 1, 4);  // [20, 30, 40]
+ * @endcode
+ */
+DA_DEF da_array da_slice(da_array arr, int start, int end);
+
+/**
+ * @brief Creates a complete copy of an existing array
+ * @param arr Source array to copy from (must not be NULL)
+ * @return New array containing all elements from the source array
+ * @note Original array is unchanged
+ * @note Returned array has ref_count = 1 and exact capacity = length
+ * @note Perfect for creating arrays that can be modified independently
+ * @note Asserts on allocation failure
+ *
+ * @code
+ * da_array original = DA_CREATE(int, 3);  // [10, 20, 30]
+ * da_array copy = da_copy(original);      // [10, 20, 30] - independent copy
+ * 
+ * // Now you can sort the copy without affecting the original
+ * sort_array(copy);  // original remains [10, 20, 30]
+ * @endcode
+ */
+DA_DEF da_array da_copy(da_array arr);
+
+/**
+ * @brief Removes multiple consecutive elements from the array
+ * @param arr Array to modify (must not be NULL)
+ * @param start Starting index of range to remove (must be >= 0)
+ * @param count Number of elements to remove (must be >= 0)
+ * @note Shifts elements after the range to the left
+ * @note Does not shrink capacity
+ * @note Asserts on out-of-bounds range
+ *
+ * @code
+ * // Remove elements at indices 2, 3, 4 (3 elements starting at index 2)
+ * da_remove_range(arr, 2, 3);
+ * @endcode
+ */
+DA_DEF void da_remove_range(da_array arr, int start, int count);
+
+/**
+ * @brief Reverses all elements in the array in place
+ * @param arr Array to reverse (must not be NULL)
+ * @note Modifies the array directly
+ * @note O(n/2) time complexity with element swaps
+ *
+ * @code
+ * // [10, 20, 30] becomes [30, 20, 10]
+ * da_reverse(arr);
+ * @endcode
+ */
+DA_DEF void da_reverse(da_array arr);
+
+/**
+ * @brief Swaps two elements at the specified indices
+ * @param arr Array to modify (must not be NULL)
+ * @param i First index (must be >= 0 and < length)
+ * @param j Second index (must be >= 0 and < length)
+ * @note Asserts on out-of-bounds indices
+ * @note No-op if i == j
+ *
+ * @code
+ * da_swap(arr, 0, 2);  // Swap first and third elements
+ * @endcode
+ */
+DA_DEF void da_swap(da_array arr, int i, int j);
+
+/**
+ * @brief Checks if the array is empty
+ * @param arr Array to check (must not be NULL)
+ * @return 1 if length == 0, 0 otherwise
+ * @note More readable than da_length(arr) == 0
+ *
+ * @code
+ * if (da_is_empty(arr)) {
+ *     printf("Array is empty\n");
+ * }
+ * @endcode
+ */
+DA_DEF int da_is_empty(da_array arr);
 
 /** @} */ // end of array_utility group
 
@@ -745,6 +901,8 @@ DA_DEF void da_builder_set(da_builder builder, int index, const void* element);
 #define DA_RESIZE(arr, len) da_resize(arr, len)
 #define DA_TRIM(arr, cap) da_trim(arr, cap)
 #define DA_SHRINK_TO_FIT(arr) da_trim(arr, da_length(arr))
+#define DA_PEEK(arr, T) (*(T*)da_peek(arr))
+#define DA_PEEK_FIRST(arr, T) (*(T*)da_peek_first(arr))
 
 /**
  * @defgroup builder_macros Type-Safe Builder Macros
@@ -1231,6 +1389,192 @@ DA_DEF void da_builder_set(da_builder builder, int index, const void* element) {
 
     void* dest = (char*)builder->data + (index * builder->element_size);
     memcpy(dest, element, builder->element_size);
+}
+
+/* Additional Array Functions Implementation */
+
+DA_DEF void* da_peek(da_array arr) {
+    DA_ASSERT(arr != NULL);
+    DA_ASSERT(arr->length > 0);
+    return (char*)arr->data + ((arr->length - 1) * arr->element_size);
+}
+
+DA_DEF void* da_peek_first(da_array arr) {
+    DA_ASSERT(arr != NULL);
+    DA_ASSERT(arr->length > 0);
+    return arr->data;
+}
+
+DA_DEF void da_append_raw(da_array arr, const void* data, int count) {
+    DA_ASSERT(arr != NULL);
+    DA_ASSERT(data != NULL);
+    DA_ASSERT(count >= 0);
+
+    if (count == 0) return;  /* Nothing to append */
+
+    /* Ensure enough capacity */
+    int new_length = arr->length + count;
+    if (new_length > arr->capacity) {
+        int new_capacity = da_grow_capacity(arr->capacity, new_length);
+        arr->data = DA_REALLOC(arr->data, new_capacity * arr->element_size);
+        DA_ASSERT(arr->data != NULL);
+        arr->capacity = new_capacity;
+    }
+
+    /* Copy all elements at once */
+    void* dest_ptr = (char*)arr->data + (arr->length * arr->element_size);
+    memcpy(dest_ptr, data, count * arr->element_size);
+    arr->length = new_length;
+}
+
+DA_DEF void da_fill(da_array arr, const void* element, int count) {
+    DA_ASSERT(arr != NULL);
+    DA_ASSERT(element != NULL);
+    DA_ASSERT(count >= 0);
+
+    if (count == 0) return;  /* Nothing to fill */
+
+    /* Ensure enough capacity */
+    int new_length = arr->length + count;
+    if (new_length > arr->capacity) {
+        int new_capacity = da_grow_capacity(arr->capacity, new_length);
+        arr->data = DA_REALLOC(arr->data, new_capacity * arr->element_size);
+        DA_ASSERT(arr->data != NULL);
+        arr->capacity = new_capacity;
+    }
+
+    /* Fill elements one by one */
+    for (int i = 0; i < count; i++) {
+        void* dest_ptr = (char*)arr->data + ((arr->length + i) * arr->element_size);
+        memcpy(dest_ptr, element, arr->element_size);
+    }
+    arr->length = new_length;
+}
+
+DA_DEF da_array da_slice(da_array arr, int start, int end) {
+    DA_ASSERT(arr != NULL);
+    DA_ASSERT(start >= 0 && start <= arr->length);
+    DA_ASSERT(end >= start && end <= arr->length);
+
+    int slice_length = end - start;
+
+    /* Create new array with exact capacity */
+    da_array result = (da_array)DA_MALLOC(sizeof(da_array_t));
+    DA_ASSERT(result != NULL);
+
+    DA_ATOMIC_STORE(&result->ref_count, 1);
+    result->length = slice_length;
+    result->capacity = slice_length;  /* Exact capacity */
+    result->element_size = arr->element_size;
+
+    if (slice_length > 0) {
+        result->data = DA_MALLOC(slice_length * result->element_size);
+        DA_ASSERT(result->data != NULL);
+
+        /* Copy slice elements */
+        void* src_ptr = (char*)arr->data + (start * arr->element_size);
+        memcpy(result->data, src_ptr, slice_length * arr->element_size);
+    } else {
+        result->data = NULL;
+    }
+
+    return result;
+}
+
+DA_DEF void da_remove_range(da_array arr, int start, int count) {
+    DA_ASSERT(arr != NULL);
+    DA_ASSERT(start >= 0 && start < arr->length);
+    DA_ASSERT(count >= 0);
+    DA_ASSERT(start + count <= arr->length);
+
+    if (count == 0) return;  /* Nothing to remove */
+
+    int end = start + count;
+
+    /* Shift elements after the range to the left */
+    if (end < arr->length) {
+        void* dest = (char*)arr->data + (start * arr->element_size);
+        void* src = (char*)arr->data + (end * arr->element_size);
+        int bytes_to_move = (arr->length - end) * arr->element_size;
+        memmove(dest, src, bytes_to_move);
+    }
+
+    arr->length -= count;
+}
+
+DA_DEF void da_reverse(da_array arr) {
+    DA_ASSERT(arr != NULL);
+
+    if (arr->length <= 1) return;  /* Nothing to reverse */
+
+    char* temp = (char*)DA_MALLOC(arr->element_size);
+    DA_ASSERT(temp != NULL);
+
+    /* Swap elements from both ends moving toward center */
+    for (int i = 0; i < arr->length / 2; i++) {
+        int j = arr->length - 1 - i;
+        
+        char* left = (char*)arr->data + (i * arr->element_size);
+        char* right = (char*)arr->data + (j * arr->element_size);
+
+        /* Three-way swap using temp buffer */
+        memcpy(temp, left, arr->element_size);
+        memcpy(left, right, arr->element_size);
+        memcpy(right, temp, arr->element_size);
+    }
+
+    DA_FREE(temp);
+}
+
+DA_DEF void da_swap(da_array arr, int i, int j) {
+    DA_ASSERT(arr != NULL);
+    DA_ASSERT(i >= 0 && i < arr->length);
+    DA_ASSERT(j >= 0 && j < arr->length);
+
+    if (i == j) return;  /* No-op if same index */
+
+    char* temp = (char*)DA_MALLOC(arr->element_size);
+    DA_ASSERT(temp != NULL);
+
+    char* elem_i = (char*)arr->data + (i * arr->element_size);
+    char* elem_j = (char*)arr->data + (j * arr->element_size);
+
+    /* Three-way swap */
+    memcpy(temp, elem_i, arr->element_size);
+    memcpy(elem_i, elem_j, arr->element_size);
+    memcpy(elem_j, temp, arr->element_size);
+
+    DA_FREE(temp);
+}
+
+DA_DEF da_array da_copy(da_array arr) {
+    DA_ASSERT(arr != NULL);
+
+    /* Create new array with exact capacity = length */
+    da_array result = (da_array)DA_MALLOC(sizeof(da_array_t));
+    DA_ASSERT(result != NULL);
+
+    DA_ATOMIC_STORE(&result->ref_count, 1);
+    result->length = arr->length;
+    result->capacity = arr->length;  /* Exact capacity for efficiency */
+    result->element_size = arr->element_size;
+
+    if (arr->length > 0) {
+        result->data = DA_MALLOC(arr->length * arr->element_size);
+        DA_ASSERT(result->data != NULL);
+
+        /* Copy all elements */
+        memcpy(result->data, arr->data, arr->length * arr->element_size);
+    } else {
+        result->data = NULL;
+    }
+
+    return result;
+}
+
+DA_DEF int da_is_empty(da_array arr) {
+    DA_ASSERT(arr != NULL);
+    return arr->length == 0;
 }
 
 #endif /* DYNAMIC_ARRAY_IMPLEMENTATION */

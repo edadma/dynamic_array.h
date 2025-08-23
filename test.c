@@ -1829,6 +1829,396 @@ void test_da_copy_reference_counting(void) {
     da_release(&copy);
 }
 
+/* Filter Operations Tests */
+// Helper predicate functions for testing
+int is_even(const void* elem, void* ctx) {
+    (void)ctx; // Suppress unused parameter warning
+    return *(int*)elem % 2 == 0;
+}
+
+int is_positive(const void* elem, void* ctx) {
+    (void)ctx; // Suppress unused parameter warning
+    return *(int*)elem > 0;
+}
+
+int greater_than_threshold(const void* elem, void* ctx) {
+    int threshold = *(int*)ctx;
+    return *(int*)elem > threshold;
+}
+
+void test_da_filter_basic(void) {
+    da_array numbers = da_new(sizeof(int), 5);
+    
+    // Add mixed numbers: [1, 2, 3, 4, 5]
+    for (int i = 1; i <= 5; i++) {
+        da_push(numbers, &i);
+    }
+    
+    // Filter even numbers
+    da_array evens = da_filter(numbers, is_even, NULL);
+    
+    TEST_ASSERT_EQUAL_INT(2, da_length(evens));  // [2, 4]
+    TEST_ASSERT_EQUAL_INT(2, da_capacity(evens)); // Exact capacity
+    TEST_ASSERT_EQUAL_INT(1, DA_ATOMIC_LOAD(&evens->ref_count));
+    
+    // Verify filtered data
+    TEST_ASSERT_EQUAL_INT(2, DA_AT(evens, 0, int));
+    TEST_ASSERT_EQUAL_INT(4, DA_AT(evens, 1, int));
+    
+    // Original unchanged
+    TEST_ASSERT_EQUAL_INT(5, da_length(numbers));
+    TEST_ASSERT_EQUAL_INT(1, DA_AT(numbers, 0, int));
+    
+    da_release(&numbers);
+    da_release(&evens);
+}
+
+void test_da_filter_empty_result(void) {
+    da_array numbers = da_new(sizeof(int), 3);
+    
+    // Add negative numbers: [-1, -2, -3]
+    int vals[] = {-1, -2, -3};
+    for (int i = 0; i < 3; i++) {
+        da_push(numbers, &vals[i]);
+    }
+    
+    // Filter positive numbers (should get empty result)
+    da_array positives = da_filter(numbers, is_positive, NULL);
+    
+    TEST_ASSERT_EQUAL_INT(0, da_length(positives));
+    TEST_ASSERT_EQUAL_INT(0, da_capacity(positives)); // Exact capacity = 0
+    TEST_ASSERT_NULL(da_data(positives));
+    TEST_ASSERT_EQUAL_INT(1, DA_ATOMIC_LOAD(&positives->ref_count));
+    
+    da_release(&numbers);
+    da_release(&positives);
+}
+
+void test_da_filter_all_match(void) {
+    da_array numbers = da_new(sizeof(int), 4);
+    
+    // Add positive numbers: [1, 2, 3, 4]
+    for (int i = 1; i <= 4; i++) {
+        da_push(numbers, &i);
+    }
+    
+    // Filter positive numbers (all should match)
+    da_array positives = da_filter(numbers, is_positive, NULL);
+    
+    TEST_ASSERT_EQUAL_INT(4, da_length(positives));
+    TEST_ASSERT_EQUAL_INT(4, da_capacity(positives)); // Exact capacity
+    
+    // Verify all data copied correctly
+    for (int i = 0; i < 4; i++) {
+        TEST_ASSERT_EQUAL_INT(i + 1, DA_AT(positives, i, int));
+    }
+    
+    da_release(&numbers);
+    da_release(&positives);
+}
+
+void test_da_filter_with_context(void) {
+    da_array numbers = da_new(sizeof(int), 6);
+    
+    // Add numbers: [1, 5, 10, 15, 20, 25]
+    int vals[] = {1, 5, 10, 15, 20, 25};
+    for (int i = 0; i < 6; i++) {
+        da_push(numbers, &vals[i]);
+    }
+    
+    // Filter numbers > 10 using context
+    int threshold = 10;
+    da_array filtered = da_filter(numbers, greater_than_threshold, &threshold);
+    
+    TEST_ASSERT_EQUAL_INT(3, da_length(filtered));  // [15, 20, 25]
+    TEST_ASSERT_EQUAL_INT(3, da_capacity(filtered)); // Exact capacity
+    
+    TEST_ASSERT_EQUAL_INT(15, DA_AT(filtered, 0, int));
+    TEST_ASSERT_EQUAL_INT(20, DA_AT(filtered, 1, int));
+    TEST_ASSERT_EQUAL_INT(25, DA_AT(filtered, 2, int));
+    
+    da_release(&numbers);
+    da_release(&filtered);
+}
+
+void test_da_filter_empty_source(void) {
+    da_array empty = da_new(sizeof(int), 0);
+    
+    // Filter empty array
+    da_array result = da_filter(empty, is_even, NULL);
+    
+    TEST_ASSERT_EQUAL_INT(0, da_length(result));
+    TEST_ASSERT_EQUAL_INT(0, da_capacity(result));
+    TEST_ASSERT_NULL(da_data(result));
+    
+    da_release(&empty);
+    da_release(&result);
+}
+
+// Helper predicate function for char filtering
+int is_uppercase(const void* elem, void* ctx) {
+    (void)ctx; // Suppress unused parameter warning
+    char c = *(char*)elem;
+    return c >= 'A' && c <= 'Z';
+}
+
+void test_da_filter_different_types(void) {
+    da_array chars = da_new(sizeof(char), 5);
+    
+    // Add characters: ['a', 'B', 'c', 'D', 'e']
+    char vals[] = {'a', 'B', 'c', 'D', 'e'};
+    for (int i = 0; i < 5; i++) {
+        da_push(chars, &vals[i]);
+    }
+    
+    // Filter uppercase characters
+    da_array uppers = da_filter(chars, is_uppercase, NULL);
+    
+    TEST_ASSERT_EQUAL_INT(2, da_length(uppers));  // ['B', 'D']
+    TEST_ASSERT_EQUAL_INT(2, da_capacity(uppers)); // Exact capacity
+    
+    TEST_ASSERT_EQUAL_INT('B', DA_AT(uppers, 0, char));
+    TEST_ASSERT_EQUAL_INT('D', DA_AT(uppers, 1, char));
+    
+    da_release(&chars);
+    da_release(&uppers);
+}
+
+void test_da_filter_independence(void) {
+    da_array numbers = da_new(sizeof(int), 4);
+    
+    // Add numbers: [1, 2, 3, 4]
+    for (int i = 1; i <= 4; i++) {
+        da_push(numbers, &i);
+    }
+    
+    da_array evens = da_filter(numbers, is_even, NULL);
+    
+    // Modify original - filtered array unaffected
+    int new_val = 99;
+    da_push(numbers, &new_val);
+    DA_PUT(numbers, 0, 100);
+    
+    TEST_ASSERT_EQUAL_INT(5, da_length(numbers));
+    TEST_ASSERT_EQUAL_INT(100, DA_AT(numbers, 0, int));
+    TEST_ASSERT_EQUAL_INT(99, DA_AT(numbers, 4, int));
+    
+    // Filtered array unchanged
+    TEST_ASSERT_EQUAL_INT(2, da_length(evens));
+    TEST_ASSERT_EQUAL_INT(2, DA_AT(evens, 0, int));
+    TEST_ASSERT_EQUAL_INT(4, DA_AT(evens, 1, int));
+    
+    // Modify filtered - original unaffected
+    DA_PUT(evens, 0, 222);
+    TEST_ASSERT_EQUAL_INT(222, DA_AT(evens, 0, int));
+    TEST_ASSERT_EQUAL_INT(100, DA_AT(numbers, 0, int)); // Original unchanged
+    
+    da_release(&numbers);
+    da_release(&evens);
+}
+
+/* Map Operations Tests */
+// Helper mapper functions for testing
+void double_int(const void* src, void* dst, void* ctx) {
+    (void)ctx; // Suppress unused parameter warning
+    *(int*)dst = *(int*)src * 2;
+}
+
+void add_offset(const void* src, void* dst, void* ctx) {
+    int offset = *(int*)ctx;
+    *(int*)dst = *(int*)src + offset;
+}
+
+void negate_int(const void* src, void* dst, void* ctx) {
+    (void)ctx; // Suppress unused parameter warning
+    *(int*)dst = -(*(int*)src);
+}
+
+void test_da_map_basic(void) {
+    da_array numbers = da_new(sizeof(int), 4);
+    
+    // Add numbers: [1, 2, 3, 4]
+    for (int i = 1; i <= 4; i++) {
+        da_push(numbers, &i);
+    }
+    
+    // Double all values
+    da_array doubled = da_map(numbers, double_int, NULL);
+    
+    TEST_ASSERT_EQUAL_INT(4, da_length(doubled));  // Same length
+    TEST_ASSERT_EQUAL_INT(4, da_capacity(doubled)); // Exact capacity
+    TEST_ASSERT_EQUAL_INT(1, DA_ATOMIC_LOAD(&doubled->ref_count));
+    
+    // Verify transformed data: [2, 4, 6, 8]
+    TEST_ASSERT_EQUAL_INT(2, DA_AT(doubled, 0, int));
+    TEST_ASSERT_EQUAL_INT(4, DA_AT(doubled, 1, int));
+    TEST_ASSERT_EQUAL_INT(6, DA_AT(doubled, 2, int));
+    TEST_ASSERT_EQUAL_INT(8, DA_AT(doubled, 3, int));
+    
+    // Original unchanged
+    TEST_ASSERT_EQUAL_INT(4, da_length(numbers));
+    TEST_ASSERT_EQUAL_INT(1, DA_AT(numbers, 0, int));
+    
+    da_release(&numbers);
+    da_release(&doubled);
+}
+
+void test_da_map_empty_array(void) {
+    da_array empty = da_new(sizeof(int), 0);
+    
+    // Map empty array
+    da_array result = da_map(empty, double_int, NULL);
+    
+    TEST_ASSERT_EQUAL_INT(0, da_length(result));
+    TEST_ASSERT_EQUAL_INT(0, da_capacity(result));
+    TEST_ASSERT_NULL(da_data(result));
+    TEST_ASSERT_EQUAL_INT(1, DA_ATOMIC_LOAD(&result->ref_count));
+    
+    da_release(&empty);
+    da_release(&result);
+}
+
+void test_da_map_with_context(void) {
+    da_array numbers = da_new(sizeof(int), 3);
+    
+    // Add numbers: [5, 10, 15]
+    int vals[] = {5, 10, 15};
+    for (int i = 0; i < 3; i++) {
+        da_push(numbers, &vals[i]);
+    }
+    
+    // Add offset of 100 to all values
+    int offset = 100;
+    da_array offsetted = da_map(numbers, add_offset, &offset);
+    
+    TEST_ASSERT_EQUAL_INT(3, da_length(offsetted));
+    TEST_ASSERT_EQUAL_INT(3, da_capacity(offsetted)); // Exact capacity
+    
+    // Verify transformed data: [105, 110, 115]
+    TEST_ASSERT_EQUAL_INT(105, DA_AT(offsetted, 0, int));
+    TEST_ASSERT_EQUAL_INT(110, DA_AT(offsetted, 1, int));
+    TEST_ASSERT_EQUAL_INT(115, DA_AT(offsetted, 2, int));
+    
+    da_release(&numbers);
+    da_release(&offsetted);
+}
+
+void test_da_map_single_element(void) {
+    da_array single = da_new(sizeof(int), 1);
+    
+    int val = 42;
+    da_push(single, &val);
+    
+    da_array negated = da_map(single, negate_int, NULL);
+    
+    TEST_ASSERT_EQUAL_INT(1, da_length(negated));
+    TEST_ASSERT_EQUAL_INT(1, da_capacity(negated)); // Exact capacity
+    TEST_ASSERT_EQUAL_INT(-42, DA_AT(negated, 0, int));
+    
+    // Original unchanged
+    TEST_ASSERT_EQUAL_INT(42, DA_AT(single, 0, int));
+    
+    da_release(&single);
+    da_release(&negated);
+}
+
+// Helper mapper function for squaring floats
+void square_float(const void* src, void* dst, void* ctx) {
+    (void)ctx; // Suppress unused parameter warning
+    float val = *(float*)src;
+    *(float*)dst = val * val;
+}
+
+void test_da_map_different_types(void) {
+    da_array floats = da_new(sizeof(float), 3);
+    
+    // Add float numbers: [1.5, 2.5, 3.5]
+    float vals[] = {1.5f, 2.5f, 3.5f};
+    for (int i = 0; i < 3; i++) {
+        da_push(floats, &vals[i]);
+    }
+    
+    da_array squared = da_map(floats, square_float, NULL);
+    
+    TEST_ASSERT_EQUAL_INT(3, da_length(squared));
+    TEST_ASSERT_EQUAL_INT(3, da_capacity(squared)); // Exact capacity
+    
+    // Verify squared values: [2.25, 6.25, 12.25]
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 2.25f, DA_AT(squared, 0, float));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 6.25f, DA_AT(squared, 1, float));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 12.25f, DA_AT(squared, 2, float));
+    
+    da_release(&floats);
+    da_release(&squared);
+}
+
+void test_da_map_independence(void) {
+    da_array numbers = da_new(sizeof(int), 3);
+    
+    // Add numbers: [1, 2, 3]
+    for (int i = 1; i <= 3; i++) {
+        da_push(numbers, &i);
+    }
+    
+    da_array doubled = da_map(numbers, double_int, NULL);
+    
+    // Modify original - mapped array unaffected
+    int new_val = 99;
+    da_push(numbers, &new_val);
+    DA_PUT(numbers, 0, 100);
+    
+    TEST_ASSERT_EQUAL_INT(4, da_length(numbers));
+    TEST_ASSERT_EQUAL_INT(100, DA_AT(numbers, 0, int));
+    TEST_ASSERT_EQUAL_INT(99, DA_AT(numbers, 3, int));
+    
+    // Mapped array unchanged
+    TEST_ASSERT_EQUAL_INT(3, da_length(doubled));
+    TEST_ASSERT_EQUAL_INT(2, DA_AT(doubled, 0, int));
+    TEST_ASSERT_EQUAL_INT(4, DA_AT(doubled, 1, int));
+    TEST_ASSERT_EQUAL_INT(6, DA_AT(doubled, 2, int));
+    
+    // Modify mapped - original unaffected  
+    DA_PUT(doubled, 0, 222);
+    TEST_ASSERT_EQUAL_INT(222, DA_AT(doubled, 0, int));
+    TEST_ASSERT_EQUAL_INT(100, DA_AT(numbers, 0, int)); // Original unchanged
+    
+    da_release(&numbers);
+    da_release(&doubled);
+}
+
+void test_da_map_chain_operations(void) {
+    da_array numbers = da_new(sizeof(int), 4);
+    
+    // Add numbers: [1, 2, 3, 4]
+    for (int i = 1; i <= 4; i++) {
+        da_push(numbers, &i);
+    }
+    
+    // Chain: double -> filter evens -> add 10
+    da_array doubled = da_map(numbers, double_int, NULL);        // [2, 4, 6, 8]
+    da_array evens = da_filter(doubled, is_even, NULL);          // [2, 4, 6, 8] (all even)
+    
+    int offset = 10;
+    da_array final = da_map(evens, add_offset, &offset);         // [12, 14, 16, 18]
+    
+    TEST_ASSERT_EQUAL_INT(4, da_length(final));
+    TEST_ASSERT_EQUAL_INT(4, da_capacity(final)); // Exact capacity
+    
+    TEST_ASSERT_EQUAL_INT(12, DA_AT(final, 0, int));
+    TEST_ASSERT_EQUAL_INT(14, DA_AT(final, 1, int));
+    TEST_ASSERT_EQUAL_INT(16, DA_AT(final, 2, int));
+    TEST_ASSERT_EQUAL_INT(18, DA_AT(final, 3, int));
+    
+    // All arrays independent
+    TEST_ASSERT_EQUAL_INT(4, da_length(numbers));
+    TEST_ASSERT_EQUAL_INT(1, DA_AT(numbers, 0, int)); // Original unchanged
+    
+    da_release(&numbers);
+    da_release(&doubled);
+    da_release(&evens);
+    da_release(&final);
+}
+
 int main(void) {
     UNITY_BEGIN();
 
@@ -1953,6 +2343,24 @@ int main(void) {
     RUN_TEST(test_da_copy_independence);
     RUN_TEST(test_da_copy_sorting_scenario);
     RUN_TEST(test_da_copy_reference_counting);
+
+    // Filter operations
+    RUN_TEST(test_da_filter_basic);
+    RUN_TEST(test_da_filter_empty_source);
+    RUN_TEST(test_da_filter_empty_result);
+    RUN_TEST(test_da_filter_all_match);
+    RUN_TEST(test_da_filter_with_context);
+    RUN_TEST(test_da_filter_different_types);
+    RUN_TEST(test_da_filter_independence);
+
+    // Map operations
+    RUN_TEST(test_da_map_basic);
+    RUN_TEST(test_da_map_empty_array);
+    RUN_TEST(test_da_map_with_context);
+    RUN_TEST(test_da_map_single_element);
+    RUN_TEST(test_da_map_different_types);
+    RUN_TEST(test_da_map_independence);
+    RUN_TEST(test_da_map_chain_operations);
 
     return UNITY_END();
 }

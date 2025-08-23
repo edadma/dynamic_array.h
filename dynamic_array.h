@@ -588,6 +588,56 @@ DA_DEF da_array da_slice(da_array arr, int start, int end);
 DA_DEF da_array da_copy(da_array arr);
 
 /**
+ * @brief Creates a new array containing elements that pass a predicate test
+ * @param arr Source array to filter (must not be NULL)
+ * @param predicate Function that returns non-zero for elements to keep (must not be NULL)
+ * @param context Optional context pointer passed to predicate function (can be NULL)
+ * @return New array containing only elements that pass the predicate test (exact capacity)
+ * @note Creates a new array with reference count = 1
+ * @note Result array has exact capacity = number of matching elements (no wasted memory)
+ * @note Returns empty array (capacity=0) if no elements match
+ * @note Predicate receives (element_pointer, context) and should return non-zero to keep element
+ * @note Asserts on allocation failure or NULL required parameters
+ * @note Perfect for functional programming patterns and data filtering
+ *
+ * @code
+ * // Filter even numbers
+ * int is_even(const void* elem, void* ctx) {
+ *     return *(int*)elem % 2 == 0;
+ * }
+ * 
+ * da_array numbers = DA_CREATE(int, 5);  // [1, 2, 3, 4, 5]
+ * da_array evens = da_filter(numbers, is_even, NULL);  // [2, 4] - exact capacity
+ * @endcode
+ */
+DA_DEF da_array da_filter(da_array arr, int (*predicate)(const void* element, void* context), void* context);
+
+/**
+ * @brief Creates a new array by transforming each element using a mapper function
+ * @param arr Source array to transform (must not be NULL)
+ * @param mapper Function to transform elements (must not be NULL)
+ * @param context Optional context pointer passed to mapper function (can be NULL)
+ * @return New array with transformed elements (same length, exact capacity)
+ * @note Creates a new array with reference count = 1
+ * @note Result array has same length as source and exact capacity = length
+ * @note Mapper receives (src_element_ptr, dst_element_ptr, context)
+ * @note Mapper should write transformed result to dst_element_ptr
+ * @note Asserts on allocation failure or NULL required parameters
+ * @note Perfect for functional programming patterns and data transformation
+ *
+ * @code
+ * // Double all values
+ * void double_int(const void* src, void* dst, void* ctx) {
+ *     *(int*)dst = *(int*)src * 2;
+ * }
+ * 
+ * da_array numbers = DA_CREATE(int, 3);    // [1, 2, 3]
+ * da_array doubled = da_map(numbers, double_int, NULL);  // [2, 4, 6] - exact capacity
+ * @endcode
+ */
+DA_DEF da_array da_map(da_array arr, void (*mapper)(const void* src, void* dst, void* context), void* context);
+
+/**
  * @brief Removes multiple consecutive elements from the array
  * @param arr Array to modify (must not be NULL)
  * @param start Starting index of range to remove (must be >= 0)
@@ -1565,6 +1615,79 @@ DA_DEF da_array da_copy(da_array arr) {
 
         /* Copy all elements */
         memcpy(result->data, arr->data, arr->length * arr->element_size);
+    } else {
+        result->data = NULL;
+    }
+
+    return result;
+}
+
+DA_DEF da_array da_filter(da_array arr, int (*predicate)(const void* element, void* context), void* context) {
+    DA_ASSERT(arr != NULL);
+    DA_ASSERT(predicate != NULL);
+
+    /* First pass: count matching elements */
+    int match_count = 0;
+    for (int i = 0; i < arr->length; i++) {
+        void* element_ptr = (char*)arr->data + (i * arr->element_size);
+        if (predicate(element_ptr, context)) {
+            match_count++;
+        }
+    }
+
+    /* Create new array with exact capacity = match_count */
+    da_array result = (da_array)DA_MALLOC(sizeof(da_array_t));
+    DA_ASSERT(result != NULL);
+
+    DA_ATOMIC_STORE(&result->ref_count, 1);
+    result->length = match_count;
+    result->capacity = match_count;  /* Exact capacity for efficiency */
+    result->element_size = arr->element_size;
+
+    if (match_count > 0) {
+        result->data = DA_MALLOC(match_count * arr->element_size);
+        DA_ASSERT(result->data != NULL);
+
+        /* Second pass: copy matching elements */
+        int result_index = 0;
+        for (int i = 0; i < arr->length; i++) {
+            void* element_ptr = (char*)arr->data + (i * arr->element_size);
+            if (predicate(element_ptr, context)) {
+                void* dest_ptr = (char*)result->data + (result_index * arr->element_size);
+                memcpy(dest_ptr, element_ptr, arr->element_size);
+                result_index++;
+            }
+        }
+    } else {
+        result->data = NULL;
+    }
+
+    return result;
+}
+
+DA_DEF da_array da_map(da_array arr, void (*mapper)(const void* src, void* dst, void* context), void* context) {
+    DA_ASSERT(arr != NULL);
+    DA_ASSERT(mapper != NULL);
+
+    /* Create new array with same length and exact capacity */
+    da_array result = (da_array)DA_MALLOC(sizeof(da_array_t));
+    DA_ASSERT(result != NULL);
+
+    DA_ATOMIC_STORE(&result->ref_count, 1);
+    result->length = arr->length;
+    result->capacity = arr->length;  /* Exact capacity for efficiency */
+    result->element_size = arr->element_size;
+
+    if (arr->length > 0) {
+        result->data = DA_MALLOC(arr->length * arr->element_size);
+        DA_ASSERT(result->data != NULL);
+
+        /* Transform each element */
+        for (int i = 0; i < arr->length; i++) {
+            void* src_ptr = (char*)arr->data + (i * arr->element_size);
+            void* dst_ptr = (char*)result->data + (i * arr->element_size);
+            mapper(src_ptr, dst_ptr, context);
+        }
     } else {
         result->data = NULL;
     }

@@ -337,7 +337,6 @@ da_array final = da_builder_to_array(&results);  // Exact capacity
 - **Added**: `da_contains()` - boolean check for element existence using predicates
 - **Added**: `da_sort()` - sort array with custom comparison function and context
 - **Improved**: All array construction operations use da_builder internally for efficiency
-- **Documentation**: Added CLAUDE.md for AI assistance and comprehensive usage examples
 - **Documentation**: Enhanced Doxygen comments with detailed usage examples for new functions
 
 ### v0.1.0

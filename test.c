@@ -282,7 +282,7 @@ void test_da_resize_shrink(void) {
 void test_da_typed_macros(void) {
     da_array arr = DA_CREATE(int, 3);
 
-#if DA_HAS_TYPEOF
+#if DA_HAS_TYPEOF || DA_HAS_GENERIC
     DA_PUSH(arr, 42);
     DA_PUSH(arr, 99);
 
@@ -324,7 +324,7 @@ void test_da_many_operations(void) {
 
     // Push many elements to test growth
     for (int i = 0; i < 100; i++) {
-#if DA_HAS_TYPEOF
+#if DA_HAS_TYPEOF || DA_HAS_GENERIC
         DA_PUSH(arr, i);
 #else
         DA_PUSH(arr, i, int);
@@ -830,7 +830,7 @@ void test_da_builder_append_basic(void) {
 void test_da_builder_append_typed_macro(void) {
     da_builder builder = DA_BUILDER_CREATE(int);
 
-#if DA_HAS_TYPEOF
+#if DA_HAS_TYPEOF || DA_HAS_GENERIC
     DA_BUILDER_APPEND(builder, 42);
     DA_BUILDER_APPEND(builder, 99);
 #else
@@ -853,7 +853,7 @@ void test_da_builder_growth_doubling(void) {
     int previous_capacity = 0;
 
     for (int i = 0; i < 20; i++) {
-#if DA_HAS_TYPEOF
+#if DA_HAS_TYPEOF || DA_HAS_GENERIC
         DA_BUILDER_APPEND(builder, i);
 #else
         DA_BUILDER_APPEND(builder, i, int);
@@ -878,7 +878,7 @@ void test_da_builder_access_operations(void) {
 
     // Append some values
     for (int i = 0; i < 5; i++) {
-#if DA_HAS_TYPEOF
+#if DA_HAS_TYPEOF || DA_HAS_GENERIC
         DA_BUILDER_APPEND(builder, i * 10);
 #else
         DA_BUILDER_APPEND(builder, i * 10, int);
@@ -904,7 +904,7 @@ void test_da_builder_clear(void) {
 
     // Add some elements
     for (int i = 0; i < 10; i++) {
-#if DA_HAS_TYPEOF
+#if DA_HAS_TYPEOF || DA_HAS_GENERIC
         DA_BUILDER_APPEND(builder, i);
 #else
         DA_BUILDER_APPEND(builder, i, int);
@@ -927,7 +927,7 @@ void test_da_builder_to_array_basic(void) {
 
     // Build up some data
     for (int i = 0; i < 10; i++) {
-#if DA_HAS_TYPEOF
+#if DA_HAS_TYPEOF || DA_HAS_GENERIC
         DA_BUILDER_APPEND(builder, i * 2);
 #else
         DA_BUILDER_APPEND(builder, i * 2, int);
@@ -980,7 +980,7 @@ void test_da_builder_to_array_exact_sizing(void) {
 
     // Add elements to trigger multiple capacity doublings
     for (int i = 0; i < 100; i++) {
-#if DA_HAS_TYPEOF
+#if DA_HAS_TYPEOF || DA_HAS_GENERIC
         DA_BUILDER_APPEND(builder, i);
 #else
         DA_BUILDER_APPEND(builder, i, int);
@@ -1004,7 +1004,7 @@ void test_da_builder_integration_with_arrays(void) {
     da_builder builder = DA_BUILDER_CREATE(int);
 
     for (int i = 0; i < 5; i++) {
-#if DA_HAS_TYPEOF
+#if DA_HAS_TYPEOF || DA_HAS_GENERIC
         DA_BUILDER_APPEND(builder, i * 10);
 #else
         DA_BUILDER_APPEND(builder, i * 10, int);
@@ -1018,7 +1018,7 @@ void test_da_builder_integration_with_arrays(void) {
     TEST_ASSERT_EQUAL_INT(2, DA_ATOMIC_LOAD(&arr->ref_count));
 
     // Test array operations
-#if DA_HAS_TYPEOF
+#if DA_HAS_TYPEOF || DA_HAS_GENERIC
     DA_PUSH(arr, 999);
 #else
     DA_PUSH(arr, 999, int);
@@ -1070,7 +1070,7 @@ void test_da_builder_stress_test(void) {
     // Add many elements to stress test growth
     const int num_elements = 1000;
     for (int i = 0; i < num_elements; i++) {
-#if DA_HAS_TYPEOF
+#if DA_HAS_TYPEOF || DA_HAS_GENERIC
         DA_BUILDER_APPEND(builder, i);
 #else
         DA_BUILDER_APPEND(builder, i, int);
@@ -2539,6 +2539,242 @@ void test_da_reduce_accumulator_is_result(void) {
     da_release(&numbers);
 }
 
+/* Test structures */
+typedef struct {
+    int x, y;
+} Point;
+
+typedef struct {
+    char name[32];
+    int age;
+    float score;
+} Person;
+
+typedef struct {
+    Point start;
+    Point end;
+    char color[16];
+} Line;
+
+/* Point struct tests */
+void test_point_struct_basic(void) {
+    da_array points = DA_CREATE(Point, 3);
+    
+    Point p1 = {10, 20};
+    Point p2 = {30, 40};
+    Point p3 = {50, 60};
+    
+#if DA_HAS_TYPEOF || DA_HAS_GENERIC
+    DA_PUSH(points, p1);
+    DA_PUSH(points, p2);
+    DA_PUSH(points, p3);
+#else
+    DA_PUSH(points, p1, Point);
+    DA_PUSH(points, p2, Point);
+    DA_PUSH(points, p3, Point);
+#endif
+    
+    TEST_ASSERT_EQUAL_INT(3, DA_LEN(points));
+    
+    Point retrieved1 = DA_AT(points, 0, Point);
+    Point retrieved2 = DA_AT(points, 1, Point);
+    Point retrieved3 = DA_AT(points, 2, Point);
+    
+    TEST_ASSERT_EQUAL_INT(10, retrieved1.x);
+    TEST_ASSERT_EQUAL_INT(20, retrieved1.y);
+    TEST_ASSERT_EQUAL_INT(30, retrieved2.x);
+    TEST_ASSERT_EQUAL_INT(40, retrieved2.y);
+    TEST_ASSERT_EQUAL_INT(50, retrieved3.x);
+    TEST_ASSERT_EQUAL_INT(60, retrieved3.y);
+    
+    da_release(&points);
+}
+
+void test_person_struct_with_strings(void) {
+    da_array people = DA_CREATE(Person, 2);
+    
+    Person alice = {"Alice", 25, 95.5f};
+    Person bob = {"Bob", 30, 87.2f};
+    
+    DA_PUSH(people, alice);
+    DA_PUSH(people, bob);
+    
+    TEST_ASSERT_EQUAL_INT(2, DA_LEN(people));
+    
+    Person retrieved_alice = DA_AT(people, 0, Person);
+    Person retrieved_bob = DA_AT(people, 1, Person);
+    
+    TEST_ASSERT_EQUAL_STRING("Alice", retrieved_alice.name);
+    TEST_ASSERT_EQUAL_INT(25, retrieved_alice.age);
+    TEST_ASSERT_EQUAL_FLOAT(95.5f, retrieved_alice.score);
+    
+    TEST_ASSERT_EQUAL_STRING("Bob", retrieved_bob.name);
+    TEST_ASSERT_EQUAL_INT(30, retrieved_bob.age);
+    TEST_ASSERT_EQUAL_FLOAT(87.2f, retrieved_bob.score);
+    
+    da_release(&people);
+}
+
+void test_nested_struct_complex(void) {
+    da_array lines = DA_CREATE(Line, 2);
+    
+    Line line1 = {{0, 0}, {10, 10}, "red"};
+    Line line2 = {{5, 5}, {15, 15}, "blue"};
+    
+    DA_PUSH(lines, line1);
+    DA_PUSH(lines, line2);
+    
+    TEST_ASSERT_EQUAL_INT(2, DA_LEN(lines));
+    
+    Line retrieved1 = DA_AT(lines, 0, Line);
+    Line retrieved2 = DA_AT(lines, 1, Line);
+    
+    TEST_ASSERT_EQUAL_INT(0, retrieved1.start.x);
+    TEST_ASSERT_EQUAL_INT(0, retrieved1.start.y);
+    TEST_ASSERT_EQUAL_INT(10, retrieved1.end.x);
+    TEST_ASSERT_EQUAL_INT(10, retrieved1.end.y);
+    TEST_ASSERT_EQUAL_STRING("red", retrieved1.color);
+    
+    TEST_ASSERT_EQUAL_INT(5, retrieved2.start.x);
+    TEST_ASSERT_EQUAL_INT(5, retrieved2.start.y);
+    TEST_ASSERT_EQUAL_INT(15, retrieved2.end.x);
+    TEST_ASSERT_EQUAL_INT(15, retrieved2.end.y);
+    TEST_ASSERT_EQUAL_STRING("blue", retrieved2.color);
+    
+    da_release(&lines);
+}
+
+void test_struct_modification(void) {
+    da_array points = DA_CREATE(Point, 2);
+    
+    Point original = {100, 200};
+    DA_PUSH(points, original);
+    
+    Point modified = {300, 400};
+    DA_PUT(points, 0, modified);
+    
+    Point retrieved = DA_AT(points, 0, Point);
+    TEST_ASSERT_EQUAL_INT(300, retrieved.x);
+    TEST_ASSERT_EQUAL_INT(400, retrieved.y);
+    
+    da_release(&points);
+}
+
+void test_struct_direct_access(void) {
+    da_array points = DA_CREATE(Point, 3);
+    
+    Point p1 = {1, 2};
+    Point p2 = {3, 4};
+    DA_PUSH(points, p1);
+    DA_PUSH(points, p2);
+    
+    /* Direct access via da_get */
+    Point* ptr = (Point*)da_get(points, 0);
+    TEST_ASSERT_EQUAL_INT(1, ptr->x);
+    TEST_ASSERT_EQUAL_INT(2, ptr->y);
+    
+    /* Modify through pointer */
+    ptr->x = 999;
+    ptr->y = 888;
+    
+    Point retrieved = DA_AT(points, 0, Point);
+    TEST_ASSERT_EQUAL_INT(999, retrieved.x);
+    TEST_ASSERT_EQUAL_INT(888, retrieved.y);
+    
+    da_release(&points);
+}
+
+void test_struct_array_operations(void) {
+    da_array people = DA_CREATE(Person, 0);
+    
+    Person team[] = {
+        {"John", 28, 92.1f},
+        {"Jane", 32, 88.5f},
+        {"Jim", 26, 95.8f}
+    };
+    
+    /* Append raw struct array */
+    da_append_raw(people, team, 3);
+    TEST_ASSERT_EQUAL_INT(3, DA_LEN(people));
+    
+    Person retrieved = DA_AT(people, 1, Person);
+    TEST_ASSERT_EQUAL_STRING("Jane", retrieved.name);
+    TEST_ASSERT_EQUAL_INT(32, retrieved.age);
+    
+    /* Test copy */
+    da_array people_copy = da_copy(people);
+    TEST_ASSERT_EQUAL_INT(3, DA_LEN(people_copy));
+    
+    Person copy_retrieved = DA_AT(people_copy, 2, Person);
+    TEST_ASSERT_EQUAL_STRING("Jim", copy_retrieved.name);
+    TEST_ASSERT_EQUAL_FLOAT(95.8f, copy_retrieved.score);
+    
+    da_release(&people);
+    da_release(&people_copy);
+}
+
+void test_struct_builder_pattern(void) {
+    da_builder builder = DA_BUILDER_CREATE(Point);
+    
+    for (int i = 0; i < 5; i++) {
+        Point p = {i * 10, i * 20};
+        DA_BUILDER_APPEND(builder, p);
+    }
+    
+    TEST_ASSERT_EQUAL_INT(5, DA_BUILDER_LEN(builder));
+    
+    /* Convert to array */
+    da_array points = DA_BUILDER_TO_ARRAY(&builder);
+    TEST_ASSERT_NULL(builder); /* Builder consumed */
+    TEST_ASSERT_EQUAL_INT(5, DA_LEN(points));
+    
+    /* Verify data integrity */
+    for (int i = 0; i < 5; i++) {
+        Point p = DA_AT(points, i, Point);
+        TEST_ASSERT_EQUAL_INT(i * 10, p.x);
+        TEST_ASSERT_EQUAL_INT(i * 20, p.y);
+    }
+    
+    da_release(&points);
+}
+
+/* Filter predicate for Person structs */
+int is_adult(const void* elem, void* ctx) {
+    const Person* person = (const Person*)elem;
+    int min_age = *(int*)ctx;
+    return person->age >= min_age;
+}
+
+void test_struct_filter_map_operations(void) {
+    da_array people = DA_CREATE(Person, 0);
+    
+    Person team[] = {
+        {"Alice", 17, 85.0f},  /* Minor */
+        {"Bob", 25, 90.0f},    /* Adult */
+        {"Carol", 16, 95.0f},  /* Minor */
+        {"David", 30, 88.0f}   /* Adult */
+    };
+    
+    da_append_raw(people, team, 4);
+    
+    /* Filter adults (age >= 18) */
+    int min_age = 18;
+    da_array adults = da_filter(people, is_adult, &min_age);
+    
+    TEST_ASSERT_EQUAL_INT(2, DA_LEN(adults));
+    
+    Person adult1 = DA_AT(adults, 0, Person);
+    Person adult2 = DA_AT(adults, 1, Person);
+    
+    TEST_ASSERT_EQUAL_STRING("Bob", adult1.name);
+    TEST_ASSERT_EQUAL_INT(25, adult1.age);
+    TEST_ASSERT_EQUAL_STRING("David", adult2.name);
+    TEST_ASSERT_EQUAL_INT(30, adult2.age);
+    
+    da_release(&people);
+    da_release(&adults);
+}
+
 int main(void) {
     UNITY_BEGIN();
 
@@ -2699,6 +2935,16 @@ int main(void) {
     RUN_TEST(test_da_reduce_with_context);
     RUN_TEST(test_da_reduce_count_matching);
     RUN_TEST(test_da_reduce_accumulator_is_result);
+
+    // Struct support tests
+    RUN_TEST(test_point_struct_basic);
+    RUN_TEST(test_person_struct_with_strings);
+    RUN_TEST(test_nested_struct_complex);
+    RUN_TEST(test_struct_modification);
+    RUN_TEST(test_struct_direct_access);
+    RUN_TEST(test_struct_array_operations);
+    RUN_TEST(test_struct_builder_pattern);
+    RUN_TEST(test_struct_filter_map_operations);
 
     return UNITY_END();
 }

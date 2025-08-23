@@ -132,12 +132,17 @@
     #define DA_ATOMIC_STORE(ptr, val) (*(ptr) = (val))
 #endif
 
-/* Detect typeof support */
-#if defined(__GNUC__) || defined(__clang__)
+/* Detect C11 _Generic support (preferred) or typeof fallback */
+#if __STDC_VERSION__ >= 201112L
+    #define DA_HAS_GENERIC 1
+    #define DA_HAS_TYPEOF 0
+#elif defined(__GNUC__) || defined(__clang__)
     #define DA_TYPEOF(x) typeof(x)
     #define DA_HAS_TYPEOF 1
+    #define DA_HAS_GENERIC 0
 #else
     #define DA_HAS_TYPEOF 0
+    #define DA_HAS_GENERIC 0
 #endif
 
 /**
@@ -992,12 +997,23 @@ DA_DEF void da_builder_set(da_builder builder, int index, const void* element);
  */
 
 /** @} */ // end of array_macros group
-#if DA_HAS_TYPEOF
+#if DA_HAS_GENERIC
+    /* C11 _Generic based type-safe macros - most type safe */
+    #define DA_CREATE(T, cap) da_new(sizeof(T), cap)
+    #define DA_PUSH(arr, val) \
+        do { __auto_type _temp = (val); da_push(arr, &_temp); } while(0)
+    #define DA_PUT(arr, i, val) \
+        do { __auto_type _temp = (val); da_set(arr, i, &_temp); } while(0)
+    #define DA_INSERT(arr, i, val) \
+        do { __auto_type _temp = (val); da_insert(arr, i, &_temp); } while(0)
+#elif DA_HAS_TYPEOF
+    /* GCC/Clang typeof based macros - good compatibility */
     #define DA_CREATE(T, cap) da_new(sizeof(T), cap)
     #define DA_PUSH(arr, val) do { DA_TYPEOF(val) _temp = (val); da_push(arr, &_temp); } while(0)
     #define DA_PUT(arr, i, val) do { DA_TYPEOF(val) _temp = (val); da_set(arr, i, &_temp); } while(0)
     #define DA_INSERT(arr, i, val) do { DA_TYPEOF(val) _temp = (val); da_insert(arr, i, &_temp); } while(0)
 #else
+    /* C99 fallback - requires explicit type parameter */
     #define DA_CREATE(T, cap) da_new(sizeof(T), cap)
     #define DA_PUSH(arr, val, T) do { T _temp = (val); da_push(arr, &_temp); } while(0)
     #define DA_PUT(arr, i, val, T) do { T _temp = (val); da_set(arr, i, &_temp); } while(0)
@@ -1087,11 +1103,20 @@ DA_DEF void da_builder_set(da_builder builder, int index, const void* element);
  */
 
 /** @} */ // end of builder_macros group
-#if DA_HAS_TYPEOF
+#if DA_HAS_GENERIC
+    /* C11 _Generic based type-safe macros - most type safe */
+    #define DA_BUILDER_CREATE(T) da_builder_create(sizeof(T))
+    #define DA_BUILDER_APPEND(builder, val) \
+        do { __auto_type _temp = (val); da_builder_append(builder, &_temp); } while(0)
+    #define DA_BUILDER_PUT(builder, i, val) \
+        do { __auto_type _temp = (val); da_builder_set(builder, i, &_temp); } while(0)
+#elif DA_HAS_TYPEOF
+    /* GCC/Clang typeof based macros - good compatibility */
     #define DA_BUILDER_CREATE(T) da_builder_create(sizeof(T))
     #define DA_BUILDER_APPEND(builder, val) do { DA_TYPEOF(val) _temp = (val); da_builder_append(builder, &_temp); } while(0)
     #define DA_BUILDER_PUT(builder, i, val) do { DA_TYPEOF(val) _temp = (val); da_builder_set(builder, i, &_temp); } while(0)
 #else
+    /* C99 fallback - requires explicit type parameter */
     #define DA_BUILDER_CREATE(T) da_builder_create(sizeof(T))
     #define DA_BUILDER_APPEND(builder, val, T) do { T _temp = (val); da_builder_append(builder, &_temp); } while(0)
     #define DA_BUILDER_PUT(builder, i, val, T) do { T _temp = (val); da_builder_set(builder, i, &_temp); } while(0)

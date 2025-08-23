@@ -1,6 +1,6 @@
 # dynamic_array.h
 
-A high-performance, (optionally atomic) reference-counted dynamic array library for C. Designed for maximum portability across PC and microcontroller targets.
+A high-performance, (optionally atomic) reference-counted dynamic array library for C with support for element retain/release functions. Designed for maximum portability across PC and microcontroller targets, with special support for language interpreters and reference-counted object systems.
 
 ## Features
 
@@ -11,6 +11,8 @@ A high-performance, (optionally atomic) reference-counted dynamic array library 
 
 **Memory Safe**
 - Reference counting prevents memory leaks and use-after-free
+- Element retain/release functions for complex object lifecycle management
+- Perfect for language interpreters with garbage-collected objects
 - Automatic cleanup when last reference is released
 - Pointers always NULLed after release for safety
 
@@ -43,7 +45,29 @@ A high-performance, (optionally atomic) reference-counted dynamic array library 
 
 ## What's New
 
-### v0.1.1 (Latest)
+### v0.3.0 (Latest) - Element Retain/Release System
+**BREAKING CHANGES** - Major API update for language interpreter support
+
+**New Element Memory Management**
+- Added retain/release function pointers to array structure for complex object lifecycle management
+- `da_create()` now takes retain_fn and release_fn parameters: `da_create(element_size, capacity, retain_fn, release_fn)`
+- New `da_new()` function for simple arrays without retain/release: `da_new(element_size)`
+- All element copying operations (copy, concat, slice, append) now call retain_fn on copied elements
+- Perfect for language interpreters with reference-counted objects (like Metal interpreter's cell_t)
+
+**Updated API**
+- `DA_NEW(T)` macro for simple array creation without retain/release functions
+- `DA_CREATE(T, cap, retain_fn, release_fn)` macro for full-featured arrays
+- `da_builder_to_array()` now takes retain_fn and release_fn parameters
+- Enhanced documentation with interpreter integration examples
+
+**Comprehensive Testing**
+- All 129+ tests updated and passing
+- Added extensive destructor tests for complex object scenarios
+- Fixed double-free issues and memory leak scenarios
+- Validated retain/release functionality across all operations
+
+### v0.1.1
 **Type Inference Support** (Thanks to @Maqi-x via PR #1)
 - Added automatic type inference for C23, C++11, and GCC/Clang
 - Macros like `DA_PUSH` now work without explicit type parameter when compiler supports it
@@ -90,8 +114,8 @@ A high-performance, (optionally atomic) reference-counted dynamic array library 
 #include "dynamic_array.h"
 
 int main() {
-    // Create a typed array
-    da_array arr = DA_CREATE(int, 10);
+    // Simple arrays (no retain/release functions needed)
+    da_array arr = DA_NEW(int);
     
     // Add elements
     DA_PUSH(arr, 42);
@@ -118,7 +142,7 @@ int main() {
     da_builder builder = DA_BUILDER_CREATE(int);
     da_builder_reserve(builder, 1000);  // Pre-allocate
     da_builder_append_array(builder, existing_data);
-    da_array result = da_builder_to_array(&builder);
+    da_array result = DA_BUILDER_TO_ARRAY(builder);  // Simple version
     
     // Cleanup (decrements ref count, frees when count reaches 0)
     da_release(&arr);
@@ -129,6 +153,89 @@ int main() {
     
     return 0;
 }
+```
+
+## Advanced: Arrays with Element Retain/Release Functions
+
+For complex objects that need custom memory management (like reference-counted interpreter values):
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+typedef struct {
+    int id;
+    char* name;  // Dynamically allocated
+} Person;
+
+// Retain function - called when elements are copied
+void person_retain(void* p) {
+    Person* person = (Person*)p;
+    if (person->name) {
+        // Duplicate the string
+        size_t len = strlen(person->name);
+        char* new_name = malloc(len + 1);
+        strcpy(new_name, person->name);
+        person->name = new_name;
+    }
+}
+
+// Release function - called when elements are removed
+void person_release(void* p) {
+    Person* person = (Person*)p;
+    if (person->name) {
+        free(person->name);
+        person->name = NULL;
+    }
+}
+
+int main() {
+    // Create array with retain/release functions
+    da_array people = DA_CREATE(Person, 10, person_retain, person_release);
+    
+    // Add a person with dynamic memory
+    Person alice = {1, malloc(16)};
+    strcpy(alice.name, "Alice");
+    DA_PUSH(people, alice);
+    
+    // When copying, retain_fn duplicates the name string
+    da_array people_copy = da_copy(people);
+    
+    // Each array now owns its own copy of the name string
+    // No double-free issues when both arrays are released
+    
+    da_release(&people);      // Calls person_release on elements
+    da_release(&people_copy); // Calls person_release on copy elements
+    
+    return 0;
+}
+```
+
+## Language Interpreter Integration
+
+Perfect for language interpreters with reference-counted objects:
+
+```c
+// Example: Metal interpreter cell_t integration
+extern void cell_retain(void* cell_ptr);   // From metal/src/cell.c
+extern void cell_release(void* cell_ptr);  // From metal/src/cell.c
+
+typedef struct cell cell_t;  // Forward declaration
+
+// Create array for interpreter values
+da_array code_array = DA_CREATE(cell_t, 100, cell_retain, cell_release);
+
+// Push interpreter values - they're automatically retained
+cell_t value = new_int32(42);
+DA_PUSH(code_array, value);
+
+// Copy operations work correctly with reference counting
+da_array code_copy = da_copy(code_array);  // All cells properly retained
+
+// Cleanup releases all cell references
+da_release(&code_array);  // All cells properly released
+da_release(&code_copy);   // Copy cells properly released
 ```
 
 ## Configuration
@@ -160,7 +267,17 @@ Configure the library before including:
 ### Creation and Reference Counting
 
 ```c
-da_array da_create(int element_size, int initial_capacity);
+// Simple arrays (no retain/release functions)
+da_array da_new(int element_size);
+#define DA_NEW(T)  da_new(sizeof(T))
+
+// Arrays with element retain/release functions  
+da_array da_create(int element_size, int initial_capacity, 
+                   void (*retain_fn)(void*), void (*release_fn)(void*));
+#define DA_CREATE(T, cap, retain_fn, release_fn)  \
+    da_create(sizeof(T), cap, retain_fn, release_fn)
+
+// Reference counting
 da_array da_retain(da_array arr);      // Increment reference count
 void da_release(da_array* arr);        // Decrement ref count, NULL pointer
 ```
@@ -275,9 +392,33 @@ make
 ./test_runner
 ```
 
-All 110+ tests should pass, covering:
-- Creation and destruction
-- Reference counting behavior
+### Builder Pattern
+
+```c
+// Create builder
+da_builder da_builder_create(int element_size);
+#define DA_BUILDER_CREATE(T)  da_builder_create(sizeof(T))
+
+// Add elements to builder
+void da_builder_append(da_builder builder, const void* element);
+#define DA_BUILDER_APPEND(builder, val)  da_builder_append(builder, &(val))
+
+// Convert to array
+da_array da_builder_to_array(da_builder* builder, 
+                              void (*retain_fn)(void*), void (*release_fn)(void*));
+
+// Convenience macros
+#define DA_BUILDER_TO_ARRAY(builder)  \
+    da_builder_to_array(builder, NULL, NULL)
+#define DA_BUILDER_TO_ARRAY_MANAGED(builder, retain_fn, release_fn)  \
+    da_builder_to_array(builder, retain_fn, release_fn)
+```
+
+All 129+ tests should pass, covering:
+- Creation and destruction (both simple and retain/release arrays)
+- Reference counting behavior  
+- Element retain/release function integration
+- Double-free prevention and memory leak detection
 - Growth strategies and builder patterns
 - Type-safe macros
 - Functional programming operations
@@ -331,7 +472,18 @@ da_array final = da_builder_to_array(&results);  // Exact capacity
 
 ## Version History
 
-### v0.2.0 (Current)
+### v0.3.0 (Current) - Element Retain/Release System
+
+**BREAKING CHANGES** - Major API update for language interpreter support
+- **API**: `da_create()` now takes 4 parameters: `da_create(element_size, capacity, retain_fn, release_fn)`
+- **NEW**: `da_new()` function for simple arrays without retain/release functions
+- **NEW**: `DA_NEW(T)` macro for convenient simple array creation
+- **Enhanced**: All element copying operations call retain_fn on copied elements
+- **Enhanced**: `da_builder_to_array()` now accepts retain_fn and release_fn parameters
+- **Fixed**: Double-free issues and memory leaks in complex object scenarios
+- **Testing**: All 129+ tests updated and passing with comprehensive retain/release coverage
+
+### v0.2.0
 
 - **Added**: `da_find_index()` - find first element matching predicate function
 - **Added**: `da_contains()` - boolean check for element existence using predicates

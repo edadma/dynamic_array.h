@@ -195,6 +195,8 @@ typedef struct {
     int capacity;             /**< @brief Allocated capacity */
     int element_size;         /**< @brief Size of each element in bytes */
     void *data;               /**< @brief Pointer to element data */
+    void (*retain_fn)(void*); /**< @brief Optional retain function called when elements added (NULL if not needed) */
+    void (*release_fn)(void*); /**< @brief Optional release function called when elements removed (NULL if not needed) */
 } da_array_t, *da_array;
 
 /**
@@ -219,21 +221,43 @@ typedef struct {
  */
 
 /**
- * @brief Creates a new dynamic array with reference counting
+ * @brief Creates a new dynamic array (simple version for general use)
  * @param element_size Size in bytes of each element (must be > 0)
- * @param initial_capacity Initial capacity (0 is valid for deferred allocation)
- * @return New array with ref_count = 1
+ * @return New array with ref_count = 1, capacity = 0 (deferred allocation)
  * @note Asserts on allocation failure or invalid parameters
  * @note Uses configured growth strategy (DA_GROWTH) for expansions
  * @note Atomic reference counting if DA_ATOMIC_REFCOUNT=1
+ * @note No retain/release functions - suitable for simple types
  *
  * @code
- * da_array arr = da_new(sizeof(int), 10);
+ * da_array arr = da_new(sizeof(int));
  * DA_PUSH(arr, 42);
  * da_release(&arr);
  * @endcode
  */
-DA_DEF da_array da_new(int element_size, int initial_capacity);
+DA_DEF da_array da_new(int element_size);
+
+/**
+ * @brief Creates a new dynamic array with full configuration
+ * @param element_size Size in bytes of each element (must be > 0)
+ * @param initial_capacity Initial capacity (0 is valid for deferred allocation)
+ * @param retain_fn Optional retain function called when elements are added (NULL if not needed)
+ * @param release_fn Optional release function called when elements are removed (NULL if not needed)
+ * @return New array with ref_count = 1
+ * @note Asserts on allocation failure or invalid parameters
+ * @note Uses configured growth strategy (DA_GROWTH) for expansions
+ * @note Atomic reference counting if DA_ATOMIC_REFCOUNT=1
+ * @note retain_fn is called during da_push(), da_insert(), da_set(), etc.
+ * @note release_fn is called during da_release(), da_pop(), da_remove(), da_clear(), etc.
+ *
+ * @code
+ * // Reference-counted types (like Metal's cell_t)
+ * da_array cells = da_create(sizeof(cell_t), 100, 
+ *                           (void(*)(void*))retain,   // retain on add
+ *                           (void(*)(void*))release); // release on remove
+ * @endcode
+ */
+DA_DEF da_array da_create(int element_size, int initial_capacity, void (*retain_fn)(void*), void (*release_fn)(void*));
 
 /**
  * @brief Releases a reference to an array, potentially freeing it
@@ -244,7 +268,7 @@ DA_DEF da_array da_new(int element_size, int initial_capacity);
  * @note Asserts if arr or *arr is NULL
  *
  * @code
- * da_array arr = da_create(sizeof(int), 5);
+ * da_array arr = da_new(sizeof(int), 5, NULL);
  * da_release(&arr);  // arr becomes NULL, memory freed
  * @endcode
  */
@@ -847,6 +871,7 @@ DA_DEF da_builder da_builder_create(int element_size);
 /**
  * @brief Converts builder to a ref-counted array with exact capacity
  * @param builder Pointer to builder pointer (will be set to NULL)
+ * @param destructor Optional destructor function for the resulting array (NULL if not needed)
  * @return New da_array with capacity = length (no wasted memory)
  * @note Builder is consumed and *builder is set to NULL
  * @note Resulting array has ref_count = 1
@@ -856,11 +881,13 @@ DA_DEF da_builder da_builder_create(int element_size);
  * @code
  * da_builder builder = DA_BUILDER_CREATE(int);
  * DA_BUILDER_APPEND(builder, 42);
- * da_array arr = da_builder_to_array(&builder);  // builder becomes NULL
- * assert(da_capacity(arr) == da_length(arr));    // Exact sizing
+ * da_array arr = da_builder_to_array(&builder, NULL);  // Simple types
+ * 
+ * // For complex types:
+ * da_array cells = da_builder_to_array(&builder, (void(*)(void*))cell_release);
  * @endcode
  */
-DA_DEF da_array da_builder_to_array(da_builder* builder);
+DA_DEF da_array da_builder_to_array(da_builder* builder, void (*retain_fn)(void*), void (*release_fn)(void*));
 
 /**
  * @brief Removes all elements from the builder
@@ -1214,7 +1241,8 @@ DA_DEF void da_builder_set(da_builder builder, int index, const void* element);
 
 /** @} */ // end of array_macros group
 
-#define DA_CREATE(T, cap) da_new(sizeof(T), cap)
+#define DA_NEW(T) da_new(sizeof(T))
+#define DA_CREATE(T, cap, retain_fn, release_fn) da_create(sizeof(T), cap, retain_fn, release_fn)
 
 #define DA_PUSH_TYPED(arr, val, T) do { T _temp = (val); da_push(arr, (void*)&_temp); } while(0)
 #define DA_PUT_TYPED(arr, i, val, T) do { T _temp = (val); da_set(arr, i, (void*)&_temp); } while(0)
@@ -1418,7 +1446,8 @@ DA_DEF void da_builder_set(da_builder builder, int index, const void* element);
 #define DA_BUILDER_CAP(builder) da_builder_capacity(builder)
 #define DA_BUILDER_AT(builder, i, T) (*(T*)da_builder_get(builder, i))
 #define DA_BUILDER_CLEAR(builder) da_builder_clear(builder)
-#define DA_BUILDER_TO_ARRAY(builder) da_builder_to_array(builder)
+#define DA_BUILDER_TO_ARRAY(builder) da_builder_to_array(builder, NULL, NULL)
+#define DA_BUILDER_TO_ARRAY_MANAGED(builder, retain_fn, release_fn) da_builder_to_array(builder, retain_fn, release_fn)
 
 /* Implementation */
 #ifdef DYNAMIC_ARRAY_IMPLEMENTATION
@@ -1454,7 +1483,24 @@ static int da_builder_grow_capacity(int current_capacity, int min_needed) {
 
 /* Array Implementation */
 
-DA_DEF da_array da_new(int element_size, int initial_capacity) {
+DA_DEF da_array da_new(int element_size) {
+    DA_ASSERT(element_size > 0);
+
+    da_array arr = (da_array)DA_MALLOC(sizeof(da_array_t));
+    DA_ASSERT(arr != NULL);
+
+    DA_ATOMIC_STORE(&arr->ref_count, 1);
+    arr->length = 0;
+    arr->capacity = 0;  /* Deferred allocation */
+    arr->element_size = element_size;
+    arr->retain_fn = NULL;
+    arr->release_fn = NULL;
+    arr->data = NULL;
+
+    return arr;
+}
+
+DA_DEF da_array da_create(int element_size, int initial_capacity, void (*retain_fn)(void*), void (*release_fn)(void*)) {
     DA_ASSERT(element_size > 0);
     DA_ASSERT(initial_capacity >= 0);
 
@@ -1465,6 +1511,8 @@ DA_DEF da_array da_new(int element_size, int initial_capacity) {
     arr->length = 0;
     arr->capacity = initial_capacity;
     arr->element_size = element_size;
+    arr->retain_fn = retain_fn;
+    arr->release_fn = release_fn;
 
     if (initial_capacity > 0) {
         arr->data = DA_MALLOC(initial_capacity * element_size);
@@ -1483,6 +1531,13 @@ DA_DEF void da_release(da_array* arr) {
     int old_count = DA_ATOMIC_FETCH_SUB(&(*arr)->ref_count, 1);
 
     if (old_count == 1) {  /* We were the last reference */
+        if ((*arr)->data && (*arr)->release_fn) {
+            /* Call release function on each element before freeing */
+            for (int i = 0; i < (*arr)->length; i++) {
+                void* element_ptr = (char*)(*arr)->data + (i * (*arr)->element_size);
+                (*arr)->release_fn(element_ptr);
+            }
+        }
         if ((*arr)->data) {
             DA_FREE((*arr)->data);
         }
@@ -1515,7 +1570,18 @@ DA_DEF void da_set(da_array arr, int index, const void* element) {
     DA_ASSERT(index >= 0 && index < arr->length);
 
     void* dest = (char*)arr->data + (index * arr->element_size);
+    
+    /* Call release function on the old element before overwriting */
+    if (arr->release_fn) {
+        arr->release_fn(dest);
+    }
+    
     memcpy(dest, element, arr->element_size);
+    
+    /* Call retain function on the newly set element */
+    if (arr->retain_fn) {
+        arr->retain_fn(dest);
+    }
 }
 
 DA_DEF void da_push(da_array arr, const void* element) {
@@ -1531,6 +1597,12 @@ DA_DEF void da_push(da_array arr, const void* element) {
 
     void* dest = (char*)arr->data + (arr->length * arr->element_size);
     memcpy(dest, element, arr->element_size);
+    
+    /* Call retain function on the newly added element */
+    if (arr->retain_fn) {
+        arr->retain_fn(dest);
+    }
+    
     arr->length++;
 }
 
@@ -1558,6 +1630,12 @@ DA_DEF void da_insert(da_array arr, int index, const void* element) {
     /* Insert the new element */
     void* insert_pos = (char*)arr->data + (index * arr->element_size);
     memcpy(insert_pos, element, arr->element_size);
+    
+    /* Call retain function on the newly inserted element */
+    if (arr->retain_fn) {
+        arr->retain_fn(insert_pos);
+    }
+    
     arr->length++;
 }
 
@@ -1565,10 +1643,16 @@ DA_DEF void da_remove(da_array arr, int index, void* out) {
     DA_ASSERT(arr != NULL);
     DA_ASSERT(index >= 0 && index < arr->length);
 
+    void* element_ptr = (char*)arr->data + (index * arr->element_size);
+    
     /* Copy element to output if requested */
     if (out != NULL) {
-        void* element_ptr = (char*)arr->data + (index * arr->element_size);
         memcpy(out, element_ptr, arr->element_size);
+    }
+    
+    /* Call destructor on the removed element */
+    if (arr->release_fn) {
+        arr->release_fn(element_ptr);
     }
 
     /* Shift elements to the left if not removing the last element */
@@ -1588,14 +1672,28 @@ DA_DEF void da_pop(da_array arr, void* out) {
 
     arr->length--;
 
+    void* src = (char*)arr->data + (arr->length * arr->element_size);
     if (out != NULL) {
-        void* src = (char*)arr->data + (arr->length * arr->element_size);
         memcpy(out, src, arr->element_size);
+    }
+    
+    /* Call release function on the popped element */
+    if (arr->release_fn) {
+        arr->release_fn(src);
     }
 }
 
 DA_DEF void da_clear(da_array arr) {
     DA_ASSERT(arr != NULL);
+    
+    /* Call release function on all elements before clearing */
+    if (arr->release_fn && arr->data) {
+        for (int i = 0; i < arr->length; i++) {
+            void* element_ptr = (char*)arr->data + (i * arr->element_size);
+            arr->release_fn(element_ptr);
+        }
+    }
+    
     arr->length = 0;
 }
 
@@ -1628,7 +1726,15 @@ DA_DEF void da_resize(da_array arr, int new_length) {
         da_reserve(arr, new_length);
     }
 
-    if (new_length > arr->length) {
+    if (new_length < arr->length) {
+        /* Call destructor on elements being removed */
+        if (arr->release_fn && arr->data) {
+            for (int i = new_length; i < arr->length; i++) {
+                void* element_ptr = (char*)arr->data + (i * arr->element_size);
+                arr->release_fn(element_ptr);
+            }
+        }
+    } else if (new_length > arr->length) {
         /* Zero-fill new elements */
         void* start = (char*)arr->data + (arr->length * arr->element_size);
         int bytes_to_zero = (new_length - arr->length) * arr->element_size;
@@ -1675,6 +1781,15 @@ DA_DEF void da_append_array(da_array dest, da_array src) {
     /* Copy all elements from src to end of dest */
     void* dest_ptr = (char*)dest->data + (dest->length * dest->element_size);
     memcpy(dest_ptr, src->data, src->length * src->element_size);
+    
+    /* Call retain function on all copied elements */
+    if (dest->retain_fn) {
+        for (int i = dest->length; i < new_length; i++) {
+            void* element_ptr = (char*)dest->data + (i * dest->element_size);
+            dest->retain_fn(element_ptr);
+        }
+    }
+    
     dest->length = new_length;
 }
 
@@ -1693,6 +1808,8 @@ DA_DEF da_array da_concat(da_array arr1, da_array arr2) {
     result->length = total_length;
     result->capacity = total_length;  /* Exact capacity */
     result->element_size = arr1->element_size;
+    result->retain_fn = arr1->retain_fn;   /* Inherit retain function from first array */
+    result->release_fn = arr1->release_fn;  /* Inherit release function from first array */
 
     if (total_length > 0) {
         result->data = DA_MALLOC(total_length * result->element_size);
@@ -1707,6 +1824,14 @@ DA_DEF da_array da_concat(da_array arr1, da_array arr2) {
         if (arr2->length > 0) {
             void* dest_ptr = (char*)result->data + (arr1->length * result->element_size);
             memcpy(dest_ptr, arr2->data, arr2->length * result->element_size);
+        }
+        
+        /* Call retain function on all copied elements */
+        if (result->retain_fn) {
+            for (int i = 0; i < result->length; i++) {
+                void* element_ptr = (char*)result->data + (i * result->element_size);
+                result->retain_fn(element_ptr);
+            }
         }
     } else {
         result->data = NULL;
@@ -1780,7 +1905,7 @@ DA_DEF void da_builder_append_array(da_builder builder, da_array arr) {
     builder->length = new_length;
 }
 
-DA_DEF da_array da_builder_to_array(da_builder* builder) {
+DA_DEF da_array da_builder_to_array(da_builder* builder, void (*retain_fn)(void*), void (*release_fn)(void*)) {
     DA_ASSERT(builder != NULL);
     DA_ASSERT(*builder != NULL);
 
@@ -1794,11 +1919,21 @@ DA_DEF da_array da_builder_to_array(da_builder* builder) {
     arr->length = b->length;
     arr->capacity = b->length;  /* Exact capacity = length */
     arr->element_size = b->element_size;
+    arr->retain_fn = retain_fn;
+    arr->release_fn = release_fn;
 
     if (b->length > 0) {
         /* Shrink to exact size */
         arr->data = DA_REALLOC(b->data, b->length * b->element_size);
         DA_ASSERT(arr->data != NULL);
+        
+        /* Call retain function on all elements in the new array */
+        if (arr->retain_fn) {
+            for (int i = 0; i < arr->length; i++) {
+                void* element_ptr = (char*)arr->data + (i * arr->element_size);
+                arr->retain_fn(element_ptr);
+            }
+        }
     } else {
         arr->data = NULL;
         if (b->data) {
@@ -1887,6 +2022,15 @@ DA_DEF void da_append_raw(da_array arr, const void* data, int count) {
     /* Copy all elements at once */
     void* dest_ptr = (char*)arr->data + (arr->length * arr->element_size);
     memcpy(dest_ptr, data, count * arr->element_size);
+    
+    /* Call retain function on all copied elements */
+    if (arr->retain_fn) {
+        for (int i = arr->length; i < new_length; i++) {
+            void* element_ptr = (char*)arr->data + (i * arr->element_size);
+            arr->retain_fn(element_ptr);
+        }
+    }
+    
     arr->length = new_length;
 }
 
@@ -1929,6 +2073,8 @@ DA_DEF da_array da_slice(da_array arr, int start, int end) {
     result->length = slice_length;
     result->capacity = slice_length;  /* Exact capacity */
     result->element_size = arr->element_size;
+    result->retain_fn = arr->retain_fn;   /* Inherit retain function */
+    result->release_fn = arr->release_fn;  /* Inherit release function */
 
     if (slice_length > 0) {
         result->data = DA_MALLOC(slice_length * result->element_size);
@@ -1937,6 +2083,14 @@ DA_DEF da_array da_slice(da_array arr, int start, int end) {
         /* Copy slice elements */
         void* src_ptr = (char*)arr->data + (start * arr->element_size);
         memcpy(result->data, src_ptr, slice_length * arr->element_size);
+        
+        /* Call retain function on all copied elements */
+        if (result->retain_fn) {
+            for (int i = 0; i < result->length; i++) {
+                void* element_ptr = (char*)result->data + (i * result->element_size);
+                result->retain_fn(element_ptr);
+            }
+        }
     } else {
         result->data = NULL;
     }
@@ -1953,6 +2107,14 @@ DA_DEF void da_remove_range(da_array arr, int start, int count) {
     if (count == 0) return;  /* Nothing to remove */
 
     int end = start + count;
+
+    /* Call destructor on elements being removed */
+    if (arr->release_fn) {
+        for (int i = start; i < end; i++) {
+            void* element_ptr = (char*)arr->data + (i * arr->element_size);
+            arr->release_fn(element_ptr);
+        }
+    }
 
     /* Shift elements after the range to the left */
     if (end < arr->length) {
@@ -2021,6 +2183,8 @@ DA_DEF da_array da_copy(da_array arr) {
     result->length = arr->length;
     result->capacity = arr->length;  /* Exact capacity for efficiency */
     result->element_size = arr->element_size;
+    result->retain_fn = arr->retain_fn;   /* Inherit retain function */
+    result->release_fn = arr->release_fn;  /* Inherit release function */
 
     if (arr->length > 0) {
         result->data = DA_MALLOC(arr->length * arr->element_size);
@@ -2028,6 +2192,14 @@ DA_DEF da_array da_copy(da_array arr) {
 
         /* Copy all elements */
         memcpy(result->data, arr->data, arr->length * arr->element_size);
+        
+        /* Call retain function on all copied elements */
+        if (result->retain_fn) {
+            for (int i = 0; i < result->length; i++) {
+                void* element_ptr = (char*)result->data + (i * result->element_size);
+                result->retain_fn(element_ptr);
+            }
+        }
     } else {
         result->data = NULL;
     }
@@ -2050,8 +2222,8 @@ DA_DEF da_array da_filter(da_array arr, int (*predicate)(const void* element, vo
         }
     }
 
-    /* Convert builder to array with exact capacity */
-    da_array result = da_builder_to_array(&builder);
+    /* Convert builder to array with exact capacity, inherit destructor */
+    da_array result = da_builder_to_array(&builder, arr->retain_fn, arr->release_fn);
     return result;
 }
 
@@ -2067,6 +2239,8 @@ DA_DEF da_array da_map(da_array arr, void (*mapper)(const void* src, void* dst, 
     result->length = arr->length;
     result->capacity = arr->length;  /* Exact capacity for efficiency */
     result->element_size = arr->element_size;
+    result->retain_fn = arr->retain_fn;   /* Inherit retain function */
+    result->release_fn = arr->release_fn;  /* Inherit release function */
 
     if (arr->length > 0) {
         result->data = DA_MALLOC(arr->length * arr->element_size);

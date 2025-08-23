@@ -329,6 +329,26 @@ da_builder_append_array(results, processed_batch_2);
 da_array final = da_builder_to_array(&results);  // Exact capacity
 ```
 
+## Version History
+
+### v0.2.0 (Current)
+
+- **Added**: `da_find_index()` - find first element matching predicate function
+- **Added**: `da_contains()` - boolean check for element existence using predicates
+- **Added**: `da_sort()` - sort array with custom comparison function and context
+- **Improved**: All array construction operations use da_builder internally for efficiency
+- **Documentation**: Added CLAUDE.md for AI assistance and comprehensive usage examples
+- **Documentation**: Enhanced Doxygen comments with detailed usage examples for new functions
+
+### v0.1.0
+
+- **Foundation**: Complete single-header dynamic array library
+- **Features**: Reference counting, atomic operations, type-safe macros, builder pattern
+- **Features**: Functional operations (filter, map, reduce)
+- **Features**: Advanced manipulation (slice, concat, reverse, swap)
+- **Platform Support**: C99+, optional C11 atomic operations, microcontroller support
+- **Documentation**: Comprehensive Doxygen documentation with examples
+
 ## License
 
 This project is dual-licensed under your choice of:

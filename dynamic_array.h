@@ -758,6 +758,67 @@ DA_DEF void da_swap(da_array arr, int i, int j);
  */
 DA_DEF int da_is_empty(da_array arr);
 
+/**
+ * @brief Find index of first element matching predicate
+ * @param arr Array to search (must not be NULL)
+ * @param predicate Function to test elements (must not be NULL)
+ * @param context Optional context passed to predicate (can be NULL)
+ * @return Index of first matching element, or -1 if not found
+ * @note Predicate receives (element_pointer, context) and should return non-zero for match
+ *
+ * @code
+ * int is_even(const void* elem, void* ctx) {
+ *     return *(int*)elem % 2 == 0;
+ * }
+ * 
+ * da_array numbers = DA_CREATE(int, 5);  // [1, 3, 4, 7, 8]
+ * int index = da_find_index(numbers, is_even, NULL);  // returns 2 (index of 4)
+ * @endcode
+ */
+DA_DEF int da_find_index(da_array arr, int (*predicate)(const void* element, void* context), void* context);
+
+/**
+ * @brief Check if array contains element matching predicate
+ * @param arr Array to search (must not be NULL)
+ * @param predicate Function to test elements (must not be NULL)
+ * @param context Optional context passed to predicate (can be NULL)
+ * @return 1 if matching element found, 0 otherwise
+ * @note More readable than da_find_index(arr, predicate, context) != -1
+ *
+ * @code
+ * int has_negative(const void* elem, void* ctx) {
+ *     return *(int*)elem < 0;
+ * }
+ * 
+ * if (da_contains(numbers, has_negative, NULL)) {
+ *     printf("Array contains negative numbers\n");
+ * }
+ * @endcode
+ */
+DA_DEF int da_contains(da_array arr, int (*predicate)(const void* element, void* context), void* context);
+
+/**
+ * @brief Sort array elements using comparison function
+ * @param arr Array to sort in-place (must not be NULL)
+ * @param compare Comparison function (must not be NULL)
+ * @param context Optional context passed to comparison function (can be NULL)
+ * @note Comparison function signature: int (*compare)(const void* a, const void* b, void* context)
+ * @note Should return <0 if a < b, 0 if a == b, >0 if a > b
+ * @note Uses standard qsort algorithm
+ *
+ * @code
+ * int compare_ints(const void* a, const void* b, void* ctx) {
+ *     (void)ctx;
+ *     int ia = *(const int*)a;
+ *     int ib = *(const int*)b;
+ *     return ia - ib;
+ * }
+ * 
+ * da_sort(numbers, compare_ints, NULL);  // Sort ascending
+ * @endcode
+ */
+DA_DEF void da_sort(da_array arr, int (*compare)(const void* a, const void* b, void* context), void* context);
+
 /** @} */ // end of array_utility group
 
 /**
@@ -2044,6 +2105,58 @@ DA_DEF void da_reduce(da_array arr, const void* initial, void* result,
 DA_DEF int da_is_empty(da_array arr) {
     DA_ASSERT(arr != NULL);
     return arr->length == 0;
+}
+
+DA_DEF int da_find_index(da_array arr, int (*predicate)(const void* element, void* context), void* context) {
+    DA_ASSERT(arr != NULL);
+    DA_ASSERT(predicate != NULL);
+    
+    for (int i = 0; i < arr->length; i++) {
+        void* element_ptr = (char*)arr->data + (i * arr->element_size);
+        if (predicate(element_ptr, context)) {
+            return i;
+        }
+    }
+    
+    return -1;  // Not found
+}
+
+DA_DEF int da_contains(da_array arr, int (*predicate)(const void* element, void* context), void* context) {
+    return da_find_index(arr, predicate, context) != -1;
+}
+
+// Helper structure for qsort context
+struct da_sort_context {
+    int (*compare)(const void* a, const void* b, void* context);
+    void* user_context;
+};
+
+// Global context for qsort (not thread-safe, but qsort isn't either)
+static struct da_sort_context* da_sort_global_context = NULL;
+
+// qsort comparison wrapper
+static int da_sort_compare_wrapper(const void* a, const void* b) {
+    struct da_sort_context* ctx = (struct da_sort_context*)da_sort_global_context;
+    return ctx->compare(a, b, ctx->user_context);
+}
+
+DA_DEF void da_sort(da_array arr, int (*compare)(const void* a, const void* b, void* context), void* context) {
+    DA_ASSERT(arr != NULL);
+    DA_ASSERT(compare != NULL);
+    
+    if (arr->length <= 1) {
+        return;  // Already sorted or empty
+    }
+    
+    // Set up global context for qsort wrapper
+    struct da_sort_context sort_ctx = { compare, context };
+    da_sort_global_context = &sort_ctx;
+    
+    // Use standard library qsort
+    qsort(arr->data, arr->length, arr->element_size, da_sort_compare_wrapper);
+    
+    // Clean up global context
+    da_sort_global_context = NULL;
 }
 
 #endif /* DYNAMIC_ARRAY_IMPLEMENTATION */

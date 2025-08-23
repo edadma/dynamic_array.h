@@ -2777,6 +2777,126 @@ void test_struct_filter_map_operations(void) {
     da_release(&adults);
 }
 
+// ============================================================================
+// NEW FUNCTIONS TESTS  
+// ============================================================================
+
+// Helper predicates for testing
+static int is_negative(const void* element, void* context) {
+    (void)context;
+    int value = *(const int*)element;
+    return value < 0;
+}
+
+static int is_greater_than_context(const void* element, void* context) {
+    int value = *(const int*)element;
+    int threshold = *(const int*)context;
+    return value > threshold;
+}
+
+static int compare_ints_asc(const void* a, const void* b, void* context) {
+    (void)context;
+    int ia = *(const int*)a;
+    int ib = *(const int*)b;
+    return ia - ib;
+}
+
+static int compare_ints_desc(const void* a, const void* b, void* context) {
+    (void)context;
+    int ia = *(const int*)a;
+    int ib = *(const int*)b;
+    return ib - ia;
+}
+
+void test_array_find_index(void) {
+    da_array arr = da_new(sizeof(int), 5);
+    
+    int values[] = {1, 3, 4, 7, 8};
+    for (int i = 0; i < 5; i++) {
+        da_push(arr, &values[i]);
+    }
+    
+    // Find first even number
+    TEST_ASSERT_EQUAL_INT(2, da_find_index(arr, is_even, NULL));  // index of 4
+    
+    // Find nothing
+    TEST_ASSERT_EQUAL_INT(-1, da_find_index(arr, is_negative, NULL));
+    
+    // Find with context
+    int threshold = 5;
+    TEST_ASSERT_EQUAL_INT(3, da_find_index(arr, is_greater_than_context, &threshold));  // index of 7
+    
+    da_release(&arr);
+}
+
+void test_array_contains(void) {
+    da_array arr = da_new(sizeof(int), 5);
+    
+    int values[] = {1, 3, 4, 7, 8};
+    for (int i = 0; i < 5; i++) {
+        da_push(arr, &values[i]);
+    }
+    
+    // Contains even number
+    TEST_ASSERT_EQUAL_INT(1, da_contains(arr, is_even, NULL));
+    
+    // Does not contain negative number
+    TEST_ASSERT_EQUAL_INT(0, da_contains(arr, is_negative, NULL));
+    
+    // Contains number greater than threshold
+    int threshold = 5;
+    TEST_ASSERT_EQUAL_INT(1, da_contains(arr, is_greater_than_context, &threshold));
+    
+    threshold = 10;
+    TEST_ASSERT_EQUAL_INT(0, da_contains(arr, is_greater_than_context, &threshold));
+    
+    da_release(&arr);
+}
+
+void test_array_sort(void) {
+    da_array arr = da_new(sizeof(int), 5);
+    
+    // Add unsorted values
+    int values[] = {7, 1, 8, 3, 4};
+    for (int i = 0; i < 5; i++) {
+        da_push(arr, &values[i]);
+    }
+    
+    // Sort ascending
+    da_sort(arr, compare_ints_asc, NULL);
+    
+    // Check sorted order
+    int expected_asc[] = {1, 3, 4, 7, 8};
+    for (int i = 0; i < 5; i++) {
+        TEST_ASSERT_EQUAL_INT(expected_asc[i], DA_AT(arr, i, int));
+    }
+    
+    // Sort descending
+    da_sort(arr, compare_ints_desc, NULL);
+    
+    // Check reverse sorted order
+    int expected_desc[] = {8, 7, 4, 3, 1};
+    for (int i = 0; i < 5; i++) {
+        TEST_ASSERT_EQUAL_INT(expected_desc[i], DA_AT(arr, i, int));
+    }
+    
+    // Test edge case: empty array
+    da_array empty_arr = da_new(sizeof(int), 0);
+    da_sort(empty_arr, compare_ints_asc, NULL);  // Should not crash
+    TEST_ASSERT_EQUAL_INT(0, da_length(empty_arr));
+    
+    // Test edge case: single element
+    da_array single_arr = da_new(sizeof(int), 1);
+    int single_val = 42;
+    da_push(single_arr, &single_val);
+    da_sort(single_arr, compare_ints_asc, NULL);  // Should not crash
+    TEST_ASSERT_EQUAL_INT(42, DA_AT(single_arr, 0, int));
+    
+    da_release(&arr);
+    da_release(&empty_arr);
+    da_release(&single_arr);
+}
+
 int main(void) {
     UNITY_BEGIN();
 
@@ -2947,6 +3067,11 @@ int main(void) {
     RUN_TEST(test_struct_array_operations);
     RUN_TEST(test_struct_builder_pattern);
     RUN_TEST(test_struct_filter_map_operations);
+
+    // New functions tests
+    RUN_TEST(test_array_find_index);
+    RUN_TEST(test_array_contains);
+    RUN_TEST(test_array_sort);
 
     return UNITY_END();
 }

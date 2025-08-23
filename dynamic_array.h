@@ -638,6 +638,32 @@ DA_DEF da_array da_filter(da_array arr, int (*predicate)(const void* element, vo
 DA_DEF da_array da_map(da_array arr, void (*mapper)(const void* src, void* dst, void* context), void* context);
 
 /**
+ * @brief Reduces array to single value using accumulator function
+ * @param arr Source array (must not be NULL)
+ * @param initial Initial accumulator value (must not be NULL)
+ * @param result Output buffer for final result (must not be NULL)
+ * @param reducer Function that combines accumulator with each element
+ * @param context Optional context passed to reducer function (can be NULL)
+ * @note Reducer function signature: void (*reducer)(void* accumulator, const void* element, void* context)
+ * @note The accumulator is passed as first parameter and modified in-place
+ * @note Result buffer receives the final accumulated value
+ *
+ * @code
+ * // Sum all integers
+ * void sum_ints(void* acc, const void* elem, void* ctx) {
+ *     (void)ctx;
+ *     *(int*)acc += *(int*)elem;
+ * }
+ * 
+ * int initial = 0;
+ * int result;
+ * da_reduce(numbers, &initial, &result, sum_ints, NULL);  // result = sum of all elements
+ * @endcode
+ */
+DA_DEF void da_reduce(da_array arr, const void* initial, void* result, 
+                      void (*reducer)(void* accumulator, const void* element, void* context), void* context);
+
+/**
  * @brief Removes multiple consecutive elements from the array
  * @param arr Array to modify (must not be NULL)
  * @param start Starting index of range to remove (must be >= 0)
@@ -1626,42 +1652,19 @@ DA_DEF da_array da_filter(da_array arr, int (*predicate)(const void* element, vo
     DA_ASSERT(arr != NULL);
     DA_ASSERT(predicate != NULL);
 
-    /* First pass: count matching elements */
-    int match_count = 0;
+    /* Use builder for single-pass filtering */
+    da_builder builder = da_builder_create(arr->element_size);
+    
+    /* Single pass: test and append matching elements */
     for (int i = 0; i < arr->length; i++) {
         void* element_ptr = (char*)arr->data + (i * arr->element_size);
         if (predicate(element_ptr, context)) {
-            match_count++;
+            da_builder_append(builder, element_ptr);
         }
     }
 
-    /* Create new array with exact capacity = match_count */
-    da_array result = (da_array)DA_MALLOC(sizeof(da_array_t));
-    DA_ASSERT(result != NULL);
-
-    DA_ATOMIC_STORE(&result->ref_count, 1);
-    result->length = match_count;
-    result->capacity = match_count;  /* Exact capacity for efficiency */
-    result->element_size = arr->element_size;
-
-    if (match_count > 0) {
-        result->data = DA_MALLOC(match_count * arr->element_size);
-        DA_ASSERT(result->data != NULL);
-
-        /* Second pass: copy matching elements */
-        int result_index = 0;
-        for (int i = 0; i < arr->length; i++) {
-            void* element_ptr = (char*)arr->data + (i * arr->element_size);
-            if (predicate(element_ptr, context)) {
-                void* dest_ptr = (char*)result->data + (result_index * arr->element_size);
-                memcpy(dest_ptr, element_ptr, arr->element_size);
-                result_index++;
-            }
-        }
-    } else {
-        result->data = NULL;
-    }
-
+    /* Convert builder to array with exact capacity */
+    da_array result = da_builder_to_array(&builder);
     return result;
 }
 
@@ -1693,6 +1696,23 @@ DA_DEF da_array da_map(da_array arr, void (*mapper)(const void* src, void* dst, 
     }
 
     return result;
+}
+
+DA_DEF void da_reduce(da_array arr, const void* initial, void* result, 
+                      void (*reducer)(void* accumulator, const void* element, void* context), void* context) {
+    DA_ASSERT(arr != NULL);
+    DA_ASSERT(initial != NULL);
+    DA_ASSERT(result != NULL);
+    DA_ASSERT(reducer != NULL);
+
+    /* Initialize result with initial value */
+    memcpy(result, initial, arr->element_size);
+
+    /* Apply reducer to each element */
+    for (int i = 0; i < arr->length; i++) {
+        void* element_ptr = (char*)arr->data + (i * arr->element_size);
+        reducer(result, element_ptr, context);
+    }
 }
 
 DA_DEF int da_is_empty(da_array arr) {

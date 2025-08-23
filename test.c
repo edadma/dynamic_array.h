@@ -2219,6 +2219,150 @@ void test_da_map_chain_operations(void) {
     da_release(&final);
 }
 
+// Helper functions for da_reduce tests
+void sum_ints(void* acc, const void* elem, void* ctx) {
+    (void)ctx;
+    *(int*)acc += *(int*)elem;
+}
+
+void product_ints(void* acc, const void* elem, void* ctx) {
+    (void)ctx;
+    *(int*)acc *= *(int*)elem;
+}
+
+void count_evens(void* acc, const void* elem, void* ctx) {
+    (void)ctx;
+    if (*(int*)elem % 2 == 0) {
+        (*(int*)acc)++;
+    }
+}
+
+void concat_floats_with_multiplier(void* acc, const void* elem, void* ctx) {
+    float multiplier = *(float*)ctx;
+    *(float*)acc += (*(float*)elem * multiplier);
+}
+
+// Basic da_reduce test - sum all elements
+void test_da_reduce_sum_basic(void) {
+    da_array numbers = da_new(sizeof(int), 5);
+    
+    // Add numbers: [1, 2, 3, 4, 5]
+    for (int i = 1; i <= 5; i++) {
+        da_push(numbers, &i);
+    }
+    
+    int initial = 0;
+    int result;
+    da_reduce(numbers, &initial, &result, sum_ints, NULL);
+    
+    TEST_ASSERT_EQUAL(15, result);  // 1+2+3+4+5 = 15
+    
+    da_release(&numbers);
+}
+
+// Test da_reduce with product operation
+void test_da_reduce_product(void) {
+    da_array numbers = da_new(sizeof(int), 4);
+    
+    // Add numbers: [2, 3, 4, 5]
+    for (int i = 2; i <= 5; i++) {
+        da_push(numbers, &i);
+    }
+    
+    int initial = 1;
+    int result;
+    da_reduce(numbers, &initial, &result, product_ints, NULL);
+    
+    TEST_ASSERT_EQUAL(120, result);  // 2*3*4*5 = 120
+    
+    da_release(&numbers);
+}
+
+// Test da_reduce with empty array
+void test_da_reduce_empty_array(void) {
+    da_array numbers = da_new(sizeof(int), 0);
+    
+    int initial = 42;
+    int result;
+    da_reduce(numbers, &initial, &result, sum_ints, NULL);
+    
+    TEST_ASSERT_EQUAL(42, result);  // Should return initial value
+    
+    da_release(&numbers);
+}
+
+// Test da_reduce with single element
+void test_da_reduce_single_element(void) {
+    da_array numbers = da_new(sizeof(int), 1);
+    
+    int value = 99;
+    da_push(numbers, &value);
+    
+    int initial = 0;
+    int result;
+    da_reduce(numbers, &initial, &result, sum_ints, NULL);
+    
+    TEST_ASSERT_EQUAL(99, result);  // 0 + 99 = 99
+    
+    da_release(&numbers);
+}
+
+// Test da_reduce with custom context
+void test_da_reduce_with_context(void) {
+    da_array numbers = da_new(sizeof(float), 3);
+    
+    // Add floats: [1.0, 2.0, 3.0]
+    float vals[] = {1.0f, 2.0f, 3.0f};
+    for (int i = 0; i < 3; i++) {
+        da_push(numbers, &vals[i]);
+    }
+    
+    float initial = 0.0f;
+    float result;
+    float multiplier = 2.0f;  // Context: multiply each element by 2 before adding
+    da_reduce(numbers, &initial, &result, concat_floats_with_multiplier, &multiplier);
+    
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 12.0f, result);  // (1*2) + (2*2) + (3*2) = 12
+    
+    da_release(&numbers);
+}
+
+// Test da_reduce with counting operation
+void test_da_reduce_count_matching(void) {
+    da_array numbers = da_new(sizeof(int), 6);
+    
+    // Add mixed numbers: [1, 2, 3, 4, 5, 6]
+    for (int i = 1; i <= 6; i++) {
+        da_push(numbers, &i);
+    }
+    
+    int initial = 0;
+    int result;
+    da_reduce(numbers, &initial, &result, count_evens, NULL);
+    
+    TEST_ASSERT_EQUAL(3, result);  // 2, 4, 6 are even
+    
+    da_release(&numbers);
+}
+
+// Test da_reduce with result same as initial reference
+void test_da_reduce_accumulator_is_result(void) {
+    da_array numbers = da_new(sizeof(int), 3);
+    
+    // Add numbers: [10, 20, 30]
+    int vals[] = {10, 20, 30};
+    for (int i = 0; i < 3; i++) {
+        da_push(numbers, &vals[i]);
+    }
+    
+    int accumulator = 5;  // Initial value
+    da_reduce(numbers, &accumulator, &accumulator, sum_ints, NULL);
+    
+    TEST_ASSERT_EQUAL(65, accumulator);  // 5 + 10 + 20 + 30 = 65
+    
+    da_release(&numbers);
+}
+
 int main(void) {
     UNITY_BEGIN();
 
@@ -2361,6 +2505,15 @@ int main(void) {
     RUN_TEST(test_da_map_different_types);
     RUN_TEST(test_da_map_independence);
     RUN_TEST(test_da_map_chain_operations);
+
+    // Reduce operations
+    RUN_TEST(test_da_reduce_sum_basic);
+    RUN_TEST(test_da_reduce_product);
+    RUN_TEST(test_da_reduce_empty_array);
+    RUN_TEST(test_da_reduce_single_element);
+    RUN_TEST(test_da_reduce_with_context);
+    RUN_TEST(test_da_reduce_count_matching);
+    RUN_TEST(test_da_reduce_accumulator_is_result);
 
     return UNITY_END();
 }

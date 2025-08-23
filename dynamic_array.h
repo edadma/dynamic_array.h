@@ -93,10 +93,12 @@
 #define DA_ASSERT assert
 #endif
 
-#ifdef DA_STATIC
-#define DA_DEF static
-#else
-#define DA_DEF extern
+#ifndef DA_DEF
+    #ifdef DA_STATIC
+        #define DA_DEF static
+    #else
+        #define DA_DEF extern
+    #endif
 #endif
 
 /**
@@ -132,17 +134,48 @@
     #define DA_ATOMIC_STORE(ptr, val) (*(ptr) = (val))
 #endif
 
-/* Detect C11 _Generic support (preferred) or typeof fallback */
-#if __STDC_VERSION__ >= 201112L
-    #define DA_HAS_GENERIC 1
-    #define DA_HAS_TYPEOF 0
-#elif defined(__GNUC__) || defined(__clang__)
+/* Detect C23/C++11 auto support (preferred) or typeof fallback */
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L && !defined(__STDC_NO_TYPEOF__)
+    #define DA_TYPEOF(x) typeof(x)     /* the C23 typeof keyword */
+    #define DA_HAS_TYPEOF 1
+#elif defined(__cplusplus) && __cplusplus >= 201103L
+    #define DA_TYPEOF(x) decltype(x)   /* the C++ decltype keyword */
+    #define DA_HAS_TYPEOF 1
+#elif (defined(__GNUC__) && __GNUC__ >= 4) || defined(__clang__)
     #define DA_TYPEOF(x) typeof(x)
     #define DA_HAS_TYPEOF 1
-    #define DA_HAS_GENERIC 0
 #else
     #define DA_HAS_TYPEOF 0
+#endif
+
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L
+    #define DA_AUTO auto   /* the C23 auto keyword */
+    #define DA_HAS_AUTO 1
+#elif defined(__cplusplus) && __cplusplus >= 201103L
+    #define DA_AUTO auto   /* the C++ auto keyword */
+    #define DA_HAS_AUTO 1
+#elif (defined(__GNUC__) && __GNUC__ >= 4) || defined(__clang__)
+    #define DA_AUTO __auto_type
+    #define DA_HAS_AUTO 1
+#else
+    #define DA_HAS_AUTO 0
+#endif
+
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+    #define DA_GENERIC(x, ...) _Generic((x), __VA_ARGS__)
+    #define DA_HAS_GENERIC 1
+#else
     #define DA_HAS_GENERIC 0
+#endif
+
+#if DA_HAS_AUTO
+    #define DA_SUPPORT_TYPE_INFERENCE 1
+    #define DA_MAKE_VAR_WITH_INFERRED_TYPE(name, initializer) DA_AUTO (name) = (initializer);
+#elif DA_HAS_TYPEOF
+    #define DA_SUPPORT_TYPE_INFERENCE 1
+    #define DA_MAKE_VAR_WITH_INFERRED_TYPE(name, initializer) DA_TYPEOF(initializer) (name) = (initializer);
+#else
+    #define DA_SUPPORT_TYPE_INFERENCE 0
 #endif
 
 /**
@@ -497,7 +530,7 @@ DA_DEF void da_trim(da_array arr, int new_capacity);
  *
  * @code
  * da_array arr1 = DA_CREATE(int, 2);  // [10, 20]
- * da_array arr2 = DA_CREATE(int, 2);  // [30, 40]  
+ * da_array arr2 = DA_CREATE(int, 2);  // [30, 40]
  * da_append_array(arr1, arr2);        // arr1 = [10, 20, 30, 40]
  * @endcode
  */
@@ -506,7 +539,7 @@ DA_DEF void da_append_array(da_array dest, da_array src);
 /**
  * @brief Creates a new array by concatenating two arrays
  * @param arr1 First array (must not be NULL)
- * @param arr2 Second array (must not be NULL) 
+ * @param arr2 Second array (must not be NULL)
  * @return New array containing elements from arr1 followed by arr2
  * @note Arrays must have the same element_size
  * @note Original arrays are unchanged
@@ -585,7 +618,7 @@ DA_DEF da_array da_slice(da_array arr, int start, int end);
  * @code
  * da_array original = DA_CREATE(int, 3);  // [10, 20, 30]
  * da_array copy = da_copy(original);      // [10, 20, 30] - independent copy
- * 
+ *
  * // Now you can sort the copy without affecting the original
  * sort_array(copy);  // original remains [10, 20, 30]
  * @endcode
@@ -610,7 +643,7 @@ DA_DEF da_array da_copy(da_array arr);
  * int is_even(const void* elem, void* ctx) {
  *     return *(int*)elem % 2 == 0;
  * }
- * 
+ *
  * da_array numbers = DA_CREATE(int, 5);  // [1, 2, 3, 4, 5]
  * da_array evens = da_filter(numbers, is_even, NULL);  // [2, 4] - exact capacity
  * @endcode
@@ -635,7 +668,7 @@ DA_DEF da_array da_filter(da_array arr, int (*predicate)(const void* element, vo
  * void double_int(const void* src, void* dst, void* ctx) {
  *     *(int*)dst = *(int*)src * 2;
  * }
- * 
+ *
  * da_array numbers = DA_CREATE(int, 3);    // [1, 2, 3]
  * da_array doubled = da_map(numbers, double_int, NULL);  // [2, 4, 6] - exact capacity
  * @endcode
@@ -659,13 +692,13 @@ DA_DEF da_array da_map(da_array arr, void (*mapper)(const void* src, void* dst, 
  *     (void)ctx;
  *     *(int*)acc += *(int*)elem;
  * }
- * 
+ *
  * int initial = 0;
  * int result;
  * da_reduce(numbers, &initial, &result, sum_ints, NULL);  // result = sum of all elements
  * @endcode
  */
-DA_DEF void da_reduce(da_array arr, const void* initial, void* result, 
+DA_DEF void da_reduce(da_array arr, const void* initial, void* result,
                       void (*reducer)(void* accumulator, const void* element, void* context), void* context);
 
 /**
@@ -904,36 +937,158 @@ DA_DEF void da_builder_set(da_builder builder, int index, const void* element);
  * @{
  */
 
-/**
- * @def DA_CREATE(T, cap)
- * @brief Type-safe array creation
- * @param T Element type (e.g., int, float, struct mytype)
- * @param cap Initial capacity
- * @return New da_array sized for type T
- *
- * @code
- * da_array arr = DA_CREATE(int, 10);
- * @endcode
- */
+ /**
+  * @def DA_CREATE(T, cap)
+  * @brief Type-safe array creation
+  * @param T Element type (e.g., int, float, struct mytype)
+  * @param cap Initial capacity
+  * @return New da_array sized for type T
+  *
+  * @code
+  * da_array arr = DA_CREATE(int, 10);
+  * @endcode
+  */
 
-/**
- * @def DA_PUSH(arr, val)
- * @brief Type-safe element append (with typeof support)
- * @param arr Array to modify
- * @param val Value to append
- * @note With typeof support: DA_PUSH(arr, 42)
- * @note Without typeof: DA_PUSH(arr, 42, int)
- */
+ /**
+  * @def DA_PUSH_TYPED(arr, val, T)
+  * @brief Type-safe element append with explicit type parameter
+  * @param arr Array to modify
+  * @param val Value to append
+  * @param T Explicit type of the value
+  * @note Always requires explicit type parameter
+  *
+  * @code
+  * DA_PUSH_TYPED(arr, 42, int);
+  * @endcode
+  */
 
-/**
- * @def DA_PUT(arr, i, val)
- * @brief Type-safe element assignment (with typeof support)
- * @param arr Array to modify
- * @param i Index to set
- * @param val Value to assign
- * @note With typeof support: DA_PUT(arr, 0, 42)
- * @note Without typeof: DA_PUT(arr, 0, 42, int)
- */
+ /**
+  * @def DA_PUT_TYPED(arr, i, val, T)
+  * @brief Type-safe element assignment with explicit type parameter
+  * @param arr Array to modify
+  * @param i Index to set
+  * @param val Value to assign
+  * @param T Explicit type of the value
+  * @note Always requires explicit type parameter
+  *
+  * @code
+  * DA_PUT_TYPED(arr, 0, 42, int);
+  * @endcode
+  */
+
+ /**
+  * @def DA_INSERT_TYPED(arr, i, val, T)
+  * @brief Type-safe element insert with explicit type parameter
+  * @param arr Array to modify
+  * @param i Index to insert at
+  * @param val Value to insert
+  * @param T Explicit type of the value
+  * @note Always requires explicit type parameter
+  *
+  * @code
+  * DA_INSERT_TYPED(arr, 0, 42, int);
+  * @endcode
+  */
+
+ /**
+  * @def DA_PUSH_INFERRED(arr, val)
+  * @brief Type-safe element append with automatic type inference
+  * @param arr Array to modify
+  * @param val Value to append
+  * @note Only available when DA_SUPPORT_TYPE_INFERENCE=1
+  * @note Automatically infers type using typeof or auto
+  *
+  * @code
+  * DA_PUSH_INFERRED(arr, 42);  // Type inferred as int
+  * @endcode
+  */
+
+ /**
+  * @def DA_PUT_INFERRED(arr, i, val)
+  * @brief Type-safe element assignment with automatic type inference
+  * @param arr Array to modify
+  * @param i Index to set
+  * @param val Value to assign
+  * @note Only available when DA_SUPPORT_TYPE_INFERENCE=1
+  * @note Automatically infers type using typeof or auto
+  *
+  * @code
+  * DA_PUT_INFERRED(arr, 0, 42);  // Type inferred as int
+  * @endcode
+  */
+
+ /**
+  * @def DA_INSERT_INFERRED(arr, i, val)
+  * @brief Type-safe element insert with automatic type inference
+  * @param arr Array to modify
+  * @param i Index to insert at
+  * @param val Value to insert
+  * @note Only available when DA_SUPPORT_TYPE_INFERENCE=1
+  * @note Automatically infers type using typeof or auto
+  *
+  * @code
+  * DA_INSERT_INFERRED(arr, 0, 42);  // Type inferred as int
+  * @endcode
+  */
+
+ /**
+  * @def DA_PUSH(arr, val) or DA_PUSH(arr, val, T)
+  * @brief Type-safe element append (adaptive macro)
+  * @param arr Array to modify
+  * @param val Value to append
+  * @param T Type parameter (only when DA_SUPPORT_TYPE_INFERENCE=0 or DA_NOT_USE_TYPE_GENERIC is defined)
+  * @note When DA_SUPPORT_TYPE_INFERENCE=1 and DA_NOT_USE_TYPE_GENERIC is not defined: DA_PUSH(arr, 42)
+  * @note When DA_SUPPORT_TYPE_INFERENCE=0 or DA_NOT_USE_TYPE_GENERIC is defined: DA_PUSH(arr, 42, int)
+  * @note Automatically chooses between inferred and typed versions
+  *
+  * @code
+  * // With type inference support:
+  * DA_PUSH(arr, 42);
+  *
+  * // Without type inference or with DA_NOT_USE_TYPE_GENERIC:
+  * DA_PUSH(arr, 42, int);
+  * @endcode
+  */
+
+ /**
+  * @def DA_PUT(arr, i, val) or DA_PUT(arr, i, val, T)
+  * @brief Type-safe element assignment (adaptive macro)
+  * @param arr Array to modify
+  * @param i Index to set
+  * @param val Value to assign
+  * @param T Type parameter (only when DA_SUPPORT_TYPE_INFERENCE=0 or DA_NOT_USE_TYPE_GENERIC is defined)
+  * @note When DA_SUPPORT_TYPE_INFERENCE=1 and DA_NOT_USE_TYPE_GENERIC is not defined: DA_PUT(arr, 0, 42)
+  * @note When DA_SUPPORT_TYPE_INFERENCE=0 or DA_NOT_USE_TYPE_GENERIC is defined: DA_PUT(arr, 0, 42, int)
+  * @note Automatically chooses between inferred and typed versions
+  *
+  * @code
+  * // With type inference support:
+  * DA_PUT(arr, 0, 42);
+  *
+  * // Without type inference or with DA_NOT_USE_TYPE_GENERIC:
+  * DA_PUT(arr, 0, 42, int);
+  * @endcode
+  */
+
+ /**
+  * @def DA_INSERT(arr, i, val) or DA_INSERT(arr, i, val, T)
+  * @brief Type-safe element insert (adaptive macro)
+  * @param arr Array to modify
+  * @param i Index to insert at
+  * @param val Value to insert
+  * @param T Type parameter (only when DA_SUPPORT_TYPE_INFERENCE=0 or DA_NOT_USE_TYPE_GENERIC is defined)
+  * @note When DA_SUPPORT_TYPE_INFERENCE=1 and DA_NOT_USE_TYPE_GENERIC is not defined: DA_INSERT(arr, 0, 42)
+  * @note When DA_SUPPORT_TYPE_INFERENCE=0 or DA_NOT_USE_TYPE_GENERIC is defined: DA_INSERT(arr, 0, 42, int)
+  * @note Automatically chooses between inferred and typed versions
+  *
+  * @code
+  * // With type inference support:
+  * DA_INSERT(arr, 0, 42);
+  *
+  * // Without type inference or with DA_NOT_USE_TYPE_GENERIC:
+  * DA_INSERT(arr, 0, 42, int);
+  * @endcode
+  */
 
 /**
  * @def DA_AT(arr, i, T)
@@ -997,27 +1152,27 @@ DA_DEF void da_builder_set(da_builder builder, int index, const void* element);
  */
 
 /** @} */ // end of array_macros group
-#if DA_HAS_GENERIC
-    /* C11 _Generic based type-safe macros - most type safe */
-    #define DA_CREATE(T, cap) da_new(sizeof(T), cap)
-    #define DA_PUSH(arr, val) \
-        do { __auto_type _temp = (val); da_push(arr, &_temp); } while(0)
-    #define DA_PUT(arr, i, val) \
-        do { __auto_type _temp = (val); da_set(arr, i, &_temp); } while(0)
-    #define DA_INSERT(arr, i, val) \
-        do { __auto_type _temp = (val); da_insert(arr, i, &_temp); } while(0)
-#elif DA_HAS_TYPEOF
-    /* GCC/Clang typeof based macros - good compatibility */
-    #define DA_CREATE(T, cap) da_new(sizeof(T), cap)
-    #define DA_PUSH(arr, val) do { DA_TYPEOF(val) _temp = (val); da_push(arr, &_temp); } while(0)
-    #define DA_PUT(arr, i, val) do { DA_TYPEOF(val) _temp = (val); da_set(arr, i, &_temp); } while(0)
-    #define DA_INSERT(arr, i, val) do { DA_TYPEOF(val) _temp = (val); da_insert(arr, i, &_temp); } while(0)
+
+#define DA_CREATE(T, cap) da_new(sizeof(T), cap)
+
+#define DA_PUSH_TYPED(arr, val, T) do { T _temp = (val); da_push(arr, (void*)&_temp); } while(0)
+#define DA_PUT_TYPED(arr, i, val, T) do { T _temp = (val); da_set(arr, i, (void*)&_temp); } while(0)
+#define DA_INSERT_TYPED(arr, i, val, T) do { T _temp = (val); da_insert(arr, i, (void*)&_temp); } while(0)
+
+#if DA_SUPPORT_TYPE_INFERENCE
+    #define DA_PUSH_INFERRED(arr, val) do { DA_MAKE_VAR_WITH_INFERRED_TYPE(_temp, val); da_push(arr, (void*)&_temp); } while(0)
+    #define DA_PUT_INFERRED(arr, i, val) do { DA_MAKE_VAR_WITH_INFERRED_TYPE(_temp, val); da_set(arr, i, (void*)&_temp); } while(0)
+    #define DA_INSERT_INFERRED(arr, i, val) do { DA_MAKE_VAR_WITH_INFERRED_TYPE(_temp, val); da_insert(arr, i, (void*)&_temp); } while(0)
+#endif
+
+#if DA_SUPPORT_TYPE_INFERENCE && !defined(DA_NOT_USE_TYPE_GENERIC)
+    #define DA_PUSH(arr, val) DA_PUSH_INFERRED(arr, val)
+    #define DA_PUT(arr, i, val) DA_PUT_INFERRED(arr, i, val)
+    #define DA_INSERT(arr, i, val) DA_INSERT_INFERRED(arr, i, val)
 #else
-    /* C99 fallback - requires explicit type parameter */
-    #define DA_CREATE(T, cap) da_new(sizeof(T), cap)
-    #define DA_PUSH(arr, val, T) do { T _temp = (val); da_push(arr, &_temp); } while(0)
-    #define DA_PUT(arr, i, val, T) do { T _temp = (val); da_set(arr, i, &_temp); } while(0)
-    #define DA_INSERT(arr, i, val, T) do { T _temp = (val); da_insert(arr, i, &_temp); } while(0)
+    #define DA_PUSH(arr, val, T) DA_PUSH_TYPED(arr, val, T)
+    #define DA_PUT(arr, i, val, T) DA_PUT_TYPED(arr, i, val, T)
+    #define DA_INSERT(arr, i, val, T) DA_INSERT_TYPED(arr, i, val, T)
 #endif
 
 #define DA_LEN(arr) da_length(arr)
@@ -1039,35 +1194,109 @@ DA_DEF void da_builder_set(da_builder builder, int index, const void* element);
  * @{
  */
 
-/**
- * @def DA_BUILDER_CREATE(T)
- * @brief Type-safe builder creation
- * @param T Element type (e.g., int, float, struct mytype)
- * @return New da_builder sized for type T
- *
- * @code
- * da_builder builder = DA_BUILDER_CREATE(int);
- * @endcode
- */
+ /**
+  * @def DA_BUILDER_CREATE(T)
+  * @brief Type-safe builder creation
+  * @param T Element type (e.g., int, float, struct mytype)
+  * @return New da_builder sized for type T
+  *
+  * @code
+  * da_builder builder = DA_BUILDER_CREATE(int);
+  * @endcode
+  */
 
-/**
- * @def DA_BUILDER_APPEND(builder, val)
- * @brief Type-safe element append to builder (with typeof support)
- * @param builder Builder to modify
- * @param val Value to append
- * @note With typeof support: DA_BUILDER_APPEND(builder, 42)
- * @note Without typeof: DA_BUILDER_APPEND(builder, 42, int)
- */
+ /**
+  * @def DA_BUILDER_APPEND_TYPED(builder, val, T)
+  * @brief Type-safe element append to builder with explicit type parameter
+  * @param builder Builder to modify
+  * @param val Value to append
+  * @param T Explicit type of the value
+  * @note Always requires explicit type parameter
+  *
+  * @code
+  * DA_BUILDER_APPEND_TYPED(builder, 42, int);
+  * @endcode
+  */
 
-/**
- * @def DA_BUILDER_PUT(builder, i, val)
- * @brief Type-safe element assignment in builder (with typeof support)
- * @param builder Builder to modify
- * @param i Index to set
- * @param val Value to assign
- * @note With typeof support: DA_BUILDER_PUT(builder, 0, 42)
- * @note Without typeof: DA_BUILDER_PUT(builder, 0, 42, int)
- */
+ /**
+  * @def DA_BUILDER_PUT_TYPED(builder, i, val, T)
+  * @brief Type-safe element assignment in builder with explicit type parameter
+  * @param builder Builder to modify
+  * @param i Index to set
+  * @param val Value to assign
+  * @param T Explicit type of the value
+  * @note Always requires explicit type parameter
+  *
+  * @code
+  * DA_BUILDER_PUT_TYPED(builder, 0, 42, int);
+  * @endcode
+  */
+
+ /**
+  * @def DA_BUILDER_APPEND_INFERRED(builder, val)
+  * @brief Type-safe element append to builder with automatic type inference
+  * @param builder Builder to modify
+  * @param val Value to append
+  * @note Only available when DA_SUPPORT_TYPE_INFERENCE=1
+  * @note Automatically infers type using typeof or auto
+  *
+  * @code
+  * DA_BUILDER_APPEND_INFERRED(builder, 42);  // Type inferred as int
+  * @endcode
+  */
+
+ /**
+  * @def DA_BUILDER_PUT_INFERRED(builder, i, val)
+  * @brief Type-safe element assignment in builder with automatic type inference
+  * @param builder Builder to modify
+  * @param i Index to set
+  * @param val Value to assign
+  * @note Only available when DA_SUPPORT_TYPE_INFERENCE=1
+  * @note Automatically infers type using typeof or auto
+  *
+  * @code
+  * DA_BUILDER_PUT_INFERRED(builder, 0, 42);  // Type inferred as int
+  * @endcode
+  */
+
+ /**
+  * @def DA_BUILDER_APPEND(builder, val) or DA_BUILDER_APPEND(builder, val, T)
+  * @brief Type-safe element append to builder (adaptive macro)
+  * @param builder Builder to modify
+  * @param val Value to append
+  * @param T Type parameter (only when DA_SUPPORT_TYPE_INFERENCE=0 or DA_NOT_USE_TYPE_GENERIC is defined)
+  * @note When DA_SUPPORT_TYPE_INFERENCE=1 and DA_NOT_USE_TYPE_GENERIC is not defined: DA_BUILDER_APPEND(builder, 42)
+  * @note When DA_SUPPORT_TYPE_INFERENCE=0 or DA_NOT_USE_TYPE_GENERIC is defined: DA_BUILDER_APPEND(builder, 42, int)
+  * @note Automatically chooses between inferred and typed versions
+  *
+  * @code
+  * // With type inference support:
+  * DA_BUILDER_APPEND(builder, 42);
+  *
+  * // Without type inference or with DA_NOT_USE_TYPE_GENERIC:
+  * DA_BUILDER_APPEND(builder, 42, int);
+  * @endcode
+  */
+
+ /**
+  * @def DA_BUILDER_PUT(builder, i, val) or DA_BUILDER_PUT(builder, i, val, T)
+  * @brief Type-safe element assignment in builder (adaptive macro)
+  * @param builder Builder to modify
+  * @param i Index to set
+  * @param val Value to assign
+  * @param T Type parameter (only when DA_SUPPORT_TYPE_INFERENCE=0 or DA_NOT_USE_TYPE_GENERIC is defined)
+  * @note When DA_SUPPORT_TYPE_INFERENCE=1 and DA_NOT_USE_TYPE_GENERIC is not defined: DA_BUILDER_PUT(builder, 0, 42)
+  * @note When DA_SUPPORT_TYPE_INFERENCE=0 or DA_NOT_USE_TYPE_GENERIC is defined: DA_BUILDER_PUT(builder, 0, 42, int)
+  * @note Automatically chooses between inferred and typed versions
+  *
+  * @code
+  * // With type inference support:
+  * DA_BUILDER_PUT(builder, 0, 42);
+  *
+  * // Without type inference or with DA_NOT_USE_TYPE_GENERIC:
+  * DA_BUILDER_PUT(builder, 0, 42, int);
+  * @endcode
+  */
 
 /**
  * @def DA_BUILDER_AT(builder, i, T)
@@ -1102,25 +1331,27 @@ DA_DEF void da_builder_set(da_builder builder, int index, const void* element);
  * @brief Convert builder to array (shorthand for da_builder_to_array)
  */
 
-/** @} */ // end of builder_macros group
-#if DA_HAS_GENERIC
-    /* C11 _Generic based type-safe macros - most type safe */
-    #define DA_BUILDER_CREATE(T) da_builder_create(sizeof(T))
-    #define DA_BUILDER_APPEND(builder, val) \
-        do { __auto_type _temp = (val); da_builder_append(builder, &_temp); } while(0)
-    #define DA_BUILDER_PUT(builder, i, val) \
-        do { __auto_type _temp = (val); da_builder_set(builder, i, &_temp); } while(0)
-#elif DA_HAS_TYPEOF
-    /* GCC/Clang typeof based macros - good compatibility */
-    #define DA_BUILDER_CREATE(T) da_builder_create(sizeof(T))
-    #define DA_BUILDER_APPEND(builder, val) do { DA_TYPEOF(val) _temp = (val); da_builder_append(builder, &_temp); } while(0)
-    #define DA_BUILDER_PUT(builder, i, val) do { DA_TYPEOF(val) _temp = (val); da_builder_set(builder, i, &_temp); } while(0)
-#else
-    /* C99 fallback - requires explicit type parameter */
-    #define DA_BUILDER_CREATE(T) da_builder_create(sizeof(T))
-    #define DA_BUILDER_APPEND(builder, val, T) do { T _temp = (val); da_builder_append(builder, &_temp); } while(0)
-    #define DA_BUILDER_PUT(builder, i, val, T) do { T _temp = (val); da_builder_set(builder, i, &_temp); } while(0)
+#define DA_BUILDER_CREATE(T) da_builder_create(sizeof(T))
+
+#define DA_BUILDER_APPEND_TYPED(builder, val, T) do { T _temp = (val); da_builder_append(builder, (void*)&_temp); } while(0)
+#define DA_BUILDER_PUT_TYPED(builder, i, val, T) do { T _temp = (val); da_builder_set(builder, i, (void*)&_temp); } while(0)
+
+#if DA_SUPPORT_TYPE_INFERENCE
+    #define DA_BUILDER_APPEND_INFERRED(builder, val) \
+        do { DA_MAKE_VAR_WITH_INFERRED_TYPE(_temp, val); da_builder_append(builder, (void*)&_temp); } while(0)
+    #define DA_BUILDER_PUT_INFERRED(builder, i, val) \
+        do { DA_MAKE_VAR_WITH_INFERRED_TYPE(_temp, val); da_builder_set(builder, i, (void*)&_temp); } while(0)
 #endif
+
+#if DA_SUPPORT_TYPE_INFERENCE && !defined(DA_NOT_USE_TYPE_GENERIC)
+    #define DA_BUILDER_APPEND(builder, val) DA_BUILDER_APPEND_INFERRED(builder, val)
+    #define DA_BUILDER_PUT(builder, i, val) DA_BUILDER_PUT_INFERRED(builder, i, val)
+#else
+    #define DA_BUILDER_APPEND(builder, val, T) DA_BUILDER_APPEND_TYPED(builder, val, T)
+    #define DA_BUILDER_PUT(builder, i, val, T) DA_BUILDER_PUT_TYPED(builder, i, val, T)
+#endif
+/** @} */ // end of builder_macros group
+
 
 #define DA_BUILDER_LEN(builder) da_builder_length(builder)
 #define DA_BUILDER_CAP(builder) da_builder_capacity(builder)
@@ -1392,7 +1623,7 @@ DA_DEF da_array da_concat(da_array arr1, da_array arr2) {
     DA_ASSERT(arr1->element_size == arr2->element_size);
 
     int total_length = arr1->length + arr2->length;
-    
+
     /* Create new array with exact capacity */
     da_array result = (da_array)DA_MALLOC(sizeof(da_array_t));
     DA_ASSERT(result != NULL);
@@ -1684,7 +1915,7 @@ DA_DEF void da_reverse(da_array arr) {
     /* Swap elements from both ends moving toward center */
     for (int i = 0; i < arr->length / 2; i++) {
         int j = arr->length - 1 - i;
-        
+
         char* left = (char*)arr->data + (i * arr->element_size);
         char* right = (char*)arr->data + (j * arr->element_size);
 
@@ -1749,7 +1980,7 @@ DA_DEF da_array da_filter(da_array arr, int (*predicate)(const void* element, vo
 
     /* Use builder for single-pass filtering */
     da_builder builder = da_builder_create(arr->element_size);
-    
+
     /* Single pass: test and append matching elements */
     for (int i = 0; i < arr->length; i++) {
         void* element_ptr = (char*)arr->data + (i * arr->element_size);
@@ -1793,7 +2024,7 @@ DA_DEF da_array da_map(da_array arr, void (*mapper)(const void* src, void* dst, 
     return result;
 }
 
-DA_DEF void da_reduce(da_array arr, const void* initial, void* result, 
+DA_DEF void da_reduce(da_array arr, const void* initial, void* result,
                       void (*reducer)(void* accumulator, const void* element, void* context), void* context) {
     DA_ASSERT(arr != NULL);
     DA_ASSERT(initial != NULL);

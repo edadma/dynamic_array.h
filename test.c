@@ -1,4 +1,4 @@
-#include "unity/unity.h"
+#include "unity.h"
 
 #define DYNAMIC_ARRAY_IMPLEMENTATION
 /* uncomment as needed */

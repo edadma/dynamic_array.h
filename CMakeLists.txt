@@ -10,7 +10,7 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -g")
 
 # Unity framework files
 set(UNITY_SOURCES
-        unity/unity.c
+        libs/unity/unity.c
 )
 
 # Test executable (can't be named "test" - CMake reserves that name)
@@ -22,7 +22,7 @@ add_executable(test_runner
 # Include directories
 target_include_directories(test_runner PRIVATE
         .
-        unity
+        libs/unity
 )
 
 # Optional: Enable testing with CTest

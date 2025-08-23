@@ -31,6 +31,46 @@ A high-performance, thread-safe, reference-counted dynamic array library for C. 
 - Lock-free performance on multi-core systems
 - Safe sharing between threads without mutexes
 
+🧮 **Functional Programming**
+- Filter, map, and reduce operations with exact capacity allocation
+- Single-pass optimizations for memory efficiency
+- Perfect for data processing pipelines
+
+🏗️ **Builder Pattern**
+- Efficient construction with pre-allocation
+- Bulk append operations for performance
+- Zero-waste capacity management
+
+## What's New
+
+### v0.1.0 (Latest)
+🎉 **Functional Programming Complete**
+- Added `da_reduce()` function with accumulator pattern for array reduction
+- Completes the functional programming trinity: filter → map → reduce
+- User-controlled memory management with result buffers
+
+⚡ **Builder Pattern Enhancements** 
+- New `da_builder_reserve()` for efficient pre-allocation
+- New `da_builder_append_array()` for bulk array operations
+- Optimized construction patterns for high-performance scenarios
+
+🚀 **Performance Optimizations**
+- Optimized `da_filter()` to use builder pattern internally (single-pass filtering)
+- Improved memory efficiency across all operations
+- Exact capacity allocation throughout the API
+
+🧪 **Comprehensive Testing**
+- Expanded test suite to 110+ tests (from 20+)
+- Complete coverage of all new functions and edge cases
+- Enhanced reliability and stability validation
+
+### v0.0.1 (Initial Release)
+- Core dynamic array functionality with reference counting
+- Thread-safe atomic operations (optional C11 support)
+- Type-safe macros and cross-platform compatibility
+- Basic builder pattern implementation
+- Initial filter and map operations
+
 ## Quick Start
 
 ```c
@@ -55,9 +95,25 @@ int main() {
     // Reference counting
     da_array shared = da_retain(arr);
     
+    // Functional programming - filter, map, reduce
+    da_array evens = da_filter(arr, is_even_predicate, NULL);
+    da_array doubled = da_map(evens, double_mapper, NULL);
+    
+    int sum = 0, total;
+    da_reduce(doubled, &sum, &total, sum_reducer, NULL);
+    
+    // Builder pattern for efficient construction
+    da_builder builder = DA_BUILDER_CREATE(int);
+    da_builder_reserve(builder, 1000);  // Pre-allocate
+    da_builder_append_array(builder, existing_data);
+    da_array result = da_builder_to_array(&builder);
+    
     // Cleanup (decrements ref count, frees when count reaches 0)
-    da_release(&arr);     // arr becomes NULL
-    da_release(&shared);  // shared becomes NULL, memory freed
+    da_release(&arr);
+    da_release(&shared);
+    da_release(&evens);
+    da_release(&doubled);
+    da_release(&result);
     
     return 0;
 }
@@ -208,11 +264,12 @@ make
 ./test_runner
 ```
 
-All 20+ tests should pass, covering:
+All 110+ tests should pass, covering:
 - Creation and destruction
 - Reference counting behavior
-- Growth strategies
+- Growth strategies and builder patterns
 - Type-safe macros
+- Functional programming operations
 - Edge cases and stress tests
 - Thread safety validation
 
@@ -223,6 +280,8 @@ All 20+ tests should pass, covering:
 - Game engines (entity lists, render queues)
 - Embedded systems with dynamic data
 - Multi-threaded applications sharing read-only data
+- Data processing pipelines (ETL operations)
+- Scientific computing with functional patterns
 - Any C project needing JavaScript-like arrays
 
 **Example - Shared Bytecode in Interpreter:**
@@ -238,6 +297,25 @@ spawn_worker(da_retain(bytecode));
 // Main thread releases its reference
 da_release(&bytecode);
 // Memory freed when last worker finishes
+```
+
+**Example - Data Processing Pipeline:**
+```c
+// Functional data processing with exact memory allocation
+da_array sensor_data = load_sensor_readings();
+da_array valid = da_filter(sensor_data, is_valid_reading, &threshold);
+da_array scaled = da_map(valid, normalize_value, &scale_params);
+
+// Reduce to statistical summary
+float stats = {0};
+da_reduce(scaled, &stats, &summary, calculate_stats, NULL);
+
+// Efficient bulk construction
+da_builder results = DA_BUILDER_CREATE(result_t);
+da_builder_reserve(results, expected_count);
+da_builder_append_array(results, processed_batch_1);
+da_builder_append_array(results, processed_batch_2);
+da_array final = da_builder_to_array(&results);  // Exact capacity
 ```
 
 ## License

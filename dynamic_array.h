@@ -1,9 +1,9 @@
 /**
  * @file dynamic_array.h
- * @brief Thread-safe reference-counted dynamic arrays with ArrayBuffer-style builder
+ * @brief reference-counted (optionally atomic) dynamic arrays with ArrayBuffer-style builder
  * @author dynamic_array.h contributors
  * @version 0.1.0
- * @date 2025
+ * @date August 2025
  *
  * Single header library for mutable dynamic arrays with reference counting.
  * Includes Scala ArrayBuffer-style builder for efficient construction.
@@ -44,10 +44,10 @@
  * da_release(&arr);
  * @endcode
  *
- * @section threading Thread Safety
+ * @section atomic Atomic Reference Counting
  *
  * When DA_ATOMIC_REFCOUNT=1 (requires C11):
- * - Reference counting operations (da_retain/da_release) are lock-free and thread-safe
+ * - Reference counting operations (da_retain/da_release) are lock-free
  * - Array content modifications require external synchronization
  * - Builders are not thread-safe and should be used by single threads
  *
@@ -116,7 +116,7 @@
     #error "DA_ATOMIC_REFCOUNT requires C11 or later for atomic support (compile with -std=c11 or later)"
 #endif
 
-/* Thread-safe atomic operations */
+/* atomic operations */
 #if DA_ATOMIC_REFCOUNT
     #include <stdatomic.h>
     #define DA_ATOMIC_INT _Atomic int
@@ -166,7 +166,7 @@ typedef struct {
 
 /**
  * @brief ArrayBuffer-style builder for efficient array construction
- * @note Not thread-safe - use from single thread only
+ * @note Not thread-safe
  * @note Always uses doubling growth strategy for fast construction
  * @note Convert to da_array with da_builder_to_array() for sharing/efficiency
  */
@@ -738,7 +738,7 @@ DA_DEF int da_is_empty(da_array arr);
  * @param element_size Size in bytes of each element (must be > 0)
  * @return New builder with length = 0 and capacity = 0
  * @note Builders always use doubling growth strategy for fast construction
- * @note Not thread-safe - use from single thread only
+ * @note Not thread-safe
  * @note Use da_builder_to_array() to convert to ref-counted array
  * @note Asserts on allocation failure
  *
@@ -949,12 +949,12 @@ DA_DEF void da_builder_set(da_builder builder, int index, const void* element);
  */
 
 /**
- * @def DA_LEN(arr)
+ * @def DA_LENGTH(arr)
  * @brief Get array length (shorthand for da_length)
  */
 
 /**
- * @def DA_CAP(arr)
+ * @def DA_CAPACITY(arr)
  * @brief Get array capacity (shorthand for da_capacity)
  */
 
@@ -1020,8 +1020,8 @@ DA_DEF void da_builder_set(da_builder builder, int index, const void* element);
     #define DA_INSERT(arr, i, val, T) do { T _temp = (val); da_insert(arr, i, &_temp); } while(0)
 #endif
 
-#define DA_LEN(arr) da_length(arr)
-#define DA_CAP(arr) da_capacity(arr)
+#define DA_LENGTH(arr) da_length(arr)
+#define DA_CAPACITY(arr) da_capacity(arr)
 #define DA_AT(arr, i, T) (*(T*)da_get(arr, i))
 #define DA_POP(arr, out_ptr) da_pop(arr, out_ptr)
 #define DA_REMOVE(arr, i, out_ptr) da_remove(arr, i, out_ptr)

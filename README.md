@@ -1,42 +1,42 @@
 # dynamic_array.h
 
-A high-performance, thread-safe, reference-counted dynamic array library for C. Designed for maximum portability across PC and microcontroller targets.
+A high-performance, (optionally atomic) reference-counted dynamic array library for C. Designed for maximum portability across PC and microcontroller targets.
 
 ## Features
 
-🚀 **High Performance**
+**High Performance**
 - Lock-free atomic reference counting
 - Configurable growth strategies (fixed increment or doubling)
 - Zero-copy data access with direct pointer operations
 
-🛡️ **Memory Safe**
+**Memory Safe**
 - Reference counting prevents memory leaks and use-after-free
 - Automatic cleanup when last reference is released
 - Pointers always NULLed after release for safety
 
-🔧 **Developer Friendly**
+**Developer Friendly**
 - Type-safe macros with `typeof` support
 - JavaScript-like array semantics
 - Comprehensive assert-based error checking
 - Single header-only library
 
-🌐 **Cross-Platform**
+**Cross-Platform**
 - Works on Linux, Windows, macOS
 - Microcontroller support: Raspberry Pi Pico, ESP32-C3, ARM Cortex-M
 - Both GCC and Clang compatible
 - Graceful fallback for compilers without `typeof`
 
-⚡ **Thread-Safe**
+**Atomic reference counting**
 - Optional atomic reference counting (C11 required)
 - Lock-free performance on multi-core systems
 - Safe sharing between threads without mutexes
 
-🧮 **Functional Programming**
+**Functional Programming**
 - Filter, map, and reduce operations with exact capacity allocation
 - Single-pass optimizations for memory efficiency
 - Perfect for data processing pipelines
 
-🏗️ **Builder Pattern**
+**Builder Pattern**
 - Efficient construction with pre-allocation
 - Bulk append operations for performance
 - Zero-waste capacity management
@@ -44,29 +44,29 @@ A high-performance, thread-safe, reference-counted dynamic array library for C. 
 ## What's New
 
 ### v0.1.0 (Latest)
-🎉 **Functional Programming Complete**
+**Functional Programming Complete**
 - Added `da_reduce()` function with accumulator pattern for array reduction
 - Completes the functional programming trinity: filter → map → reduce
 - User-controlled memory management with result buffers
 
-⚡ **Builder Pattern Enhancements** 
+**Builder Pattern Enhancements** 
 - New `da_builder_reserve()` for efficient pre-allocation
 - New `da_builder_append_array()` for bulk array operations
 - Optimized construction patterns for high-performance scenarios
 
-🚀 **Performance Optimizations**
+**Performance Optimizations**
 - Optimized `da_filter()` to use builder pattern internally (single-pass filtering)
 - Improved memory efficiency across all operations
 - Exact capacity allocation throughout the API
 
-🧪 **Comprehensive Testing**
+**Comprehensive Testing**
 - Expanded test suite to 110+ tests (from 20+)
 - Complete coverage of all new functions and edge cases
 - Enhanced reliability and stability validation
 
 ### v0.0.1 (Initial Release)
 - Core dynamic array functionality with reference counting
-- Thread-safe atomic operations (optional C11 support)
+- Atomic ref counting
 - Type-safe macros and cross-platform compatibility
 - Basic builder pattern implementation
 - Initial filter and map operations
@@ -167,8 +167,8 @@ void da_release(da_array* arr);        // Decrement ref count, NULL pointer
 
 // Universal macros
 #define DA_AT(arr, i, T)            // Get element at index
-#define DA_LEN(arr)                 // Get length
-#define DA_CAP(arr)                 // Get capacity
+#define DA_LENGTH(arr)                 // Get length
+#define DA_CAPACITY(arr)                 // Get capacity
 #define DA_POP(arr, out_ptr)        // Pop last element
 #define DA_CLEAR(arr)               // Clear all elements
 #define DA_RESERVE(arr, cap)        // Reserve capacity
@@ -190,7 +190,7 @@ void da_reserve(da_array arr, int new_capacity);
 void da_resize(da_array arr, int new_length);
 ```
 
-## Thread Safety
+## Lock-free Reference Counting
 
 Enable atomic reference counting:
 
@@ -200,7 +200,6 @@ Enable atomic reference counting:
 #include "dynamic_array.h"
 ```
 
-**Thread-Safe Operations (Lock-Free):**
 - `da_retain()` - Atomic reference increment
 - `da_release()` - Atomic reference decrement
 - Memory cleanup - Only one thread frees when ref count hits 0
@@ -243,9 +242,9 @@ This is perfect for embedded systems where you want to catch bugs early rather t
 - ESP32-C3 (Espressif toolchain)
 
 **Requirements:**
-- C99 minimum (C11 for thread safety)
+- C11 for atomic reference count operations
 - `<stdlib.h>`, `<string.h>`, `<assert.h>`
-- `<stdatomic.h>` (only if `DA_THREAD_SAFE=1`)
+- `<stdatomic.h>` (only if `DA_ATOMIC_REFCOUNT=1`)
 
 ## Building and Testing
 
@@ -271,7 +270,7 @@ All 110+ tests should pass, covering:
 - Type-safe macros
 - Functional programming operations
 - Edge cases and stress tests
-- Thread safety validation
+- Atomic reference count validation
 
 ## Use Cases
 

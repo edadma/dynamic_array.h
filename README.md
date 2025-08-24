@@ -1,5 +1,10 @@
 # dynamic_array.h
 
+[![Version](https://img.shields.io/badge/version-v0.3.1-blue.svg)](https://github.com/edadma/dynamic_array.h/releases)
+[![Language](https://img.shields.io/badge/language-C11-blue.svg)](https://en.cppreference.com/w/c/11)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Unlicense-green.svg)](#license)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS%20%7C%20MCU-lightgrey.svg)](#platform-support)
+
 A high-performance, (optionally atomic) reference-counted dynamic array library for C with support for element retain/release functions. Designed for maximum portability across PC and microcontroller targets, with special support for language interpreters and reference-counted object systems.
 
 ## Features

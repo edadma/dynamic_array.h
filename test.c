@@ -1,6 +1,6 @@
 #include "unity.h"
 
-#define DYNAMIC_ARRAY_IMPLEMENTATION
+#define DA_IMPLEMENTATION
 /* uncomment as needed */
 /* #define DA_NOT_USE_TYPE_GENERIC */
 #include "dynamic_array.h"

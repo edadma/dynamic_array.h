@@ -21,7 +21,7 @@
  * #define DA_GROWTH 16             // fixed growth increment (default: doubling)
  * #define DA_ATOMIC_REFCOUNT 1     // enable atomic reference counting (C11 required)
  *
- * #define DYNAMIC_ARRAY_IMPLEMENTATION
+ * #define DA_IMPLEMENTATION
  * #include "dynamic_array.h"
  * @endcode
  *
@@ -1450,7 +1450,7 @@ DA_DEF void da_builder_set(da_builder builder, int index, const void* element);
 #define DA_BUILDER_TO_ARRAY_MANAGED(builder, retain_fn, release_fn) da_builder_to_array(builder, retain_fn, release_fn)
 
 /* Implementation */
-#ifdef DYNAMIC_ARRAY_IMPLEMENTATION
+#ifdef DA_IMPLEMENTATION
 
 static int da_grow_capacity(int current_capacity, int min_needed) {
     int new_capacity = current_capacity;
@@ -2333,6 +2333,6 @@ DA_DEF void da_sort(da_array arr, int (*compare)(const void* a, const void* b, v
     da_sort_global_context = NULL;
 }
 
-#endif /* DYNAMIC_ARRAY_IMPLEMENTATION */
+#endif /* DA_IMPLEMENTATION */
 
 #endif /* DYNAMIC_ARRAY_H */

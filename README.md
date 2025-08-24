@@ -110,7 +110,7 @@ A high-performance, (optionally atomic) reference-counted dynamic array library 
 ## Quick Start
 
 ```c
-#define DYNAMIC_ARRAY_IMPLEMENTATION
+#define DA_IMPLEMENTATION
 #include "dynamic_array.h"
 
 int main() {
@@ -258,7 +258,7 @@ Configure the library before including:
 // Atomic reference counting (requires C11)
 #define DA_ATOMIC_REFCOUNT 1
 
-#define DYNAMIC_ARRAY_IMPLEMENTATION
+#define DA_IMPLEMENTATION
 #include "dynamic_array.h"
 ```
 
@@ -325,7 +325,7 @@ Enable atomic reference counting:
 
 ```c
 #define DA_ATOMIC_REFCOUNT 1
-#define DYNAMIC_ARRAY_IMPLEMENTATION
+#define DA_IMPLEMENTATION
 #include "dynamic_array.h"
 ```
 
